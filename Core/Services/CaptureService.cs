@@ -201,6 +201,7 @@ namespace UIXtend.Core.Services
         private long _totalDispatchTicks;
         private long _maxDispatchTicks;
         private long _lastDispatchStatsTicks = Stopwatch.GetTimestamp();
+        private int _totalDrainCount; // stale frames discarded by queue drain
         public nint MonitorKey { get; }
         public int ViewCount { get { lock (_viewLock) return _views.Count; } }
 
@@ -211,12 +212,21 @@ namespace UIXtend.Core.Services
             _d3dDevice = device.As<IDirect3DDevice>(); // QI once, reuse for recreates
             _captureSize = item.Size;
 
-            // Double-buffered frame pool at the monitor's native resolution.
-            // The session auto-starts on creation — there is no explicit Start() call.
-            _framePool = Direct3D11CaptureFramePool.Create(
+            // Free-threaded, single-buffered frame pool at the monitor's native resolution.
+            //
+            // CreateFreeThreaded (vs Create): eliminates the DispatcherQueue hop. Create()
+            // ties FrameArrived to the calling thread's DispatcherQueue, so every frame must
+            // wait to be scheduled on that thread — behind XAML layout, input, etc. —
+            // before the callback fires. CreateFreeThreaded() calls us directly on WGC's
+            // internal thread the instant the frame is ready; no dispatcher overhead.
+            //
+            // bufferCount=1 (vs 2): WGC can only queue one frame ahead of delivery. With
+            // draining (TryGetNextFrame loop) we always get the latest, so extra buffers
+            // only add pipeline depth without benefit. One buffer = minimum WGC latency.
+            _framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
                 _d3dDevice,
                 DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                2,
+                1,
                 _captureSize);
 
             _framePool.FrameArrived += OnFrameArrived;
@@ -244,9 +254,26 @@ namespace UIXtend.Core.Services
         {
             if (_disposed) return;
 
-            using var frame = sender.TryGetNextFrame();
+            // Drain the frame queue to get the most recent frame, discarding any stale
+            // intermediates. TryGetNextFrame() returns null immediately when the queue is
+            // empty, so this is at most bufferCount extra COM calls — zero GPU cost.
+            // Without draining, processing hiccups cause the queue to fill and the display
+            // to fall behind real-time by up to bufferCount frames.
+            var frame = sender.TryGetNextFrame();
             if (frame == null) return;
 
+            int drainCount = 0;
+            while (true)
+            {
+                var newer = sender.TryGetNextFrame();
+                if (newer == null) break;
+                frame.Dispose();
+                frame = newer;
+                drainCount++;
+            }
+
+            using (frame)
+            {
             // Recreate the frame pool when the monitor resolution changes
             if (frame.ContentSize.Width != _captureSize.Width ||
                 frame.ContentSize.Height != _captureSize.Height)
@@ -255,7 +282,7 @@ namespace UIXtend.Core.Services
                 sender.Recreate(
                     _d3dDevice,
                     DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                    2,
+                    1,
                     _captureSize);
                 return; // Skip this frame; next one will be the correct size
             }
@@ -281,21 +308,25 @@ namespace UIXtend.Core.Services
             var dispatchTicks = Stopwatch.GetTimestamp() - dispatchStart;
             _dispatchCount++;
             _totalDispatchTicks += dispatchTicks;
+            _totalDrainCount += drainCount;
             if (dispatchTicks > _maxDispatchTicks) _maxDispatchTicks = dispatchTicks;
 
             var now = Stopwatch.GetTimestamp();
             if (now - _lastDispatchStatsTicks >= Stopwatch.Frequency * 5)
             {
-                var avgMs  = _totalDispatchTicks * 1000.0 / Stopwatch.Frequency / _dispatchCount;
-                var maxMs  = _maxDispatchTicks  * 1000.0 / Stopwatch.Frequency;
-                var fps    = _dispatchCount / 5.0;
-                var views  = snapshot.Length;
-                AppLogger.Log($"[perf] MonitorCapture 0x{MonitorKey:X}: {fps:F1} fps, {views} views, dispatch avg={avgMs:F2}ms max={maxMs:F2}ms thread={Environment.CurrentManagedThreadId}");
+                var avgMs     = _totalDispatchTicks * 1000.0 / Stopwatch.Frequency / _dispatchCount;
+                var maxMs     = _maxDispatchTicks  * 1000.0 / Stopwatch.Frequency;
+                var fps       = _dispatchCount / 5.0;
+                var views     = snapshot.Length;
+                var avgDrain  = (double)_totalDrainCount / _dispatchCount;
+                AppLogger.Log($"[perf] MonitorCapture 0x{MonitorKey:X}: {fps:F1} fps, {views} views, dispatch avg={avgMs:F2}ms max={maxMs:F2}ms drain avg={avgDrain:F2} thread={Environment.CurrentManagedThreadId}");
                 _dispatchCount = 0;
                 _totalDispatchTicks = 0;
                 _maxDispatchTicks = 0;
+                _totalDrainCount = 0;
                 _lastDispatchStatsTicks = now;
             }
+            } // end using (frame)
         }
 
         public void Dispose()
