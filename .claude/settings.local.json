@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /d/Dev/UIXtend/UIXtend -type d -not -path */bin/* -not -path */obj/* -not -path */.vs/*)",
+      "Bash(grep -E \"\\\\.\\(json|config|xml|txt\\)$\")",
+      "Bash(dotnet build:*)"
+    ]
+  }
+}
