@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using UIXtend.Core;
 using UIXtend.Core.Interfaces;
@@ -32,17 +33,29 @@ namespace UIXtend.Core.Services
 
         public void OpenLens(Rect globalRegion)
         {
+            var sw = Stopwatch.StartNew();
             AppLogger.Log($"OpenLens region=({globalRegion.X},{globalRegion.Y} {globalRegion.Width}x{globalRegion.Height})");
+
             var capture = _captureService.StartCapture(globalRegion);
+            AppLogger.Log($"  StartCapture took {sw.ElapsedMilliseconds} ms");
+
             var color = LensColorPalette.ForIndex(capture.Id - 1);
             var window = new LensWindow(capture, _renderService.Device, color);
+            AppLogger.Log($"  LensWindow ctor took {sw.ElapsedMilliseconds} ms");
 
             window.LensClosed += OnLensWindowClosed;
             window.Activate();
+            AppLogger.Log($"  Activate() took {sw.ElapsedMilliseconds} ms");
 
             _active.Add((capture, window));
-            AppLogger.Log($"  Lens {capture.Id} opened");
+            AppLogger.Log($"  Lens {capture.Id} opened — total {sw.ElapsedMilliseconds} ms (first frame logged separately)");
             LensesChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void SetOverlayVisible(bool visible)
+        {
+            foreach (var (_, window) in _active)
+                window.ShowOverlay = visible;
         }
 
         public void CloseLens(int id)

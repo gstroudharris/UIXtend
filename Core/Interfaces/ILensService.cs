@@ -16,6 +16,7 @@ namespace UIXtend.Core.Interfaces
     {
         void OpenLens(Rect globalRegion);
         void CloseLens(int id);
+        void SetOverlayVisible(bool visible);
 
         IReadOnlyList<LensInfo> ActiveLenses { get; }
 

@@ -58,6 +58,15 @@ namespace UIXtend.Core.UI
                 _lensService.LensesChanged += OnLensesChanged;
                 RebuildLensButtons();
             }
+
+            // Show overlays while the menu is visible; hide them when it's hidden/closed.
+            // We use AppWindow.Changed rather than Closed because WindowService intercepts
+            // the Closing event, cancels it, and calls AppWindow.Hide() — Closed never fires.
+            AppWindow.Changed += (sender, args) =>
+            {
+                if (args.DidVisibilityChange)
+                    _lensService?.SetOverlayVisible(AppWindow.IsVisible);
+            };
         }
 
         private async void OnSelectRegionClicked(object sender, RoutedEventArgs e)

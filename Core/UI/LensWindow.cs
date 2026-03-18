@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -25,6 +26,22 @@ namespace UIXtend.Core.UI
         private CanvasSwapChain? _swapChain;
         private readonly object _swapChainLock = new();
         private bool _closed;
+        private readonly Stopwatch _openStopwatch = Stopwatch.StartNew();
+        private bool _firstFrameLogged;
+        internal bool ShowOverlay { get; set; } = true;
+
+        // Cached per-window text resources — created once, reused every frame.
+        // Recreated only when the swap chain is resized. Disposed on close.
+        private CanvasTextFormat? _labelFormat;
+        private CanvasTextLayout? _labelLayout;
+        private Windows.Foundation.Size _labelLayoutSize;
+
+        // Per-frame draw timing — logged every 5 seconds to avoid log I/O overhead.
+        private int _frameDrawCount;
+        private long _totalDrawTicks;
+        private long _maxDrawTicks;
+        private long _lastDrawStatsTicks = Stopwatch.GetTimestamp();
+        private int _firstFrameThreadId;
 
         /// <summary>Fires with the capture ID when this window fully closes and cleans up.</summary>
         internal event Action<int>? LensClosed;
@@ -132,7 +149,7 @@ namespace UIXtend.Core.UI
                 var physW = Math.Max(1f, (float)_panel.ActualWidth * scale);
                 var physH = Math.Max(1f, (float)_panel.ActualHeight * scale);
 
-                AppLogger.Log($"  OnPanelLoaded id={_capture.Id}: panel={_panel.ActualWidth}x{_panel.ActualHeight} dips, scale={scale}, swapChain={physW}x{physH} phys");
+                AppLogger.Log($"  OnPanelLoaded id={_capture.Id}: panel={_panel.ActualWidth}x{_panel.ActualHeight} dips, scale={scale}, swapChain={physW}x{physH} phys — {_openStopwatch.ElapsedMilliseconds} ms since ctor");
 
                 // 96 DPI means 1 drawing unit = 1 physical pixel — simplest coordinate system.
                 _swapChain = new CanvasSwapChain(_device, physW, physH, 96f);
@@ -152,6 +169,10 @@ namespace UIXtend.Core.UI
                 var physW = Math.Max(1f, (float)e.NewSize.Width * scale);
                 var physH = Math.Max(1f, (float)e.NewSize.Height * scale);
                 _swapChain.ResizeBuffers(physW, physH, 96f);
+
+                // Force label layout to rebuild at the new size on the next frame
+                _labelLayout?.Dispose();
+                _labelLayout = null;
             }
         }
 
@@ -163,8 +184,17 @@ namespace UIXtend.Core.UI
             lock (_swapChainLock) swapChain = _swapChain;
             if (swapChain == null || _closed) return;
 
+            var drawStart = Stopwatch.GetTimestamp();
+
             try
             {
+                if (!_firstFrameLogged)
+                {
+                    _firstFrameLogged = true;
+                    _firstFrameThreadId = Environment.CurrentManagedThreadId;
+                    AppLogger.Log($"  First frame id={_capture.Id}: {_openStopwatch.ElapsedMilliseconds} ms since ctor, thread={_firstFrameThreadId}");
+                }
+
                 // At 96 DPI, Size.Width/Height == physical pixels. DrawImage GPU-scales
                 // the captured CropRect to fill the entire swap chain surface.
                 var size = swapChain.Size;
@@ -173,38 +203,75 @@ namespace UIXtend.Core.UI
                     fullMonitorBitmap,
                     new Rect(0, 0, size.Width, size.Height),
                     _capture.CropRect);
-                // Tint overlay: 50/255 ≈ 20% opacity
-                ds.FillRectangle(
-                    new Rect(0, 0, size.Width, size.Height),
-                    Windows.UI.Color.FromArgb(50, _tintColor.R, _tintColor.G, _tintColor.B));
-
-                // Centered label
-                var label = $"Capture {_capture.Id}";
-                using var fmt = new CanvasTextFormat
+                if (ShowOverlay)
                 {
-                    FontFamily = "Segoe UI Variable",
-                    FontSize = 18f,
-                    FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
-                    HorizontalAlignment = CanvasHorizontalAlignment.Center,
-                    VerticalAlignment = CanvasVerticalAlignment.Center,
-                };
-                // Semi-transparent dark background pill for legibility
-                using var layout = new CanvasTextLayout(ds, label, fmt, (float)size.Width, (float)size.Height);
-                var tb = layout.LayoutBounds;
-                const float padX = 12f, padY = 6f;
-                var pill = new Rect(
-                    size.Width / 2 - tb.Width / 2 - padX,
-                    size.Height / 2 - tb.Height / 2 - padY,
-                    tb.Width + padX * 2,
-                    tb.Height + padY * 2);
-                ds.FillRoundedRectangle(pill, 6f, 6f, Windows.UI.Color.FromArgb(140, 0, 0, 0));
-                ds.DrawTextLayout(layout, 0f, 0f, Colors.White);
+                    // Tint overlay: 50/255 ≈ 20% opacity
+                    ds.FillRectangle(
+                        new Rect(0, 0, size.Width, size.Height),
+                        Windows.UI.Color.FromArgb(50, _tintColor.R, _tintColor.G, _tintColor.B));
 
-                swapChain.Present();
+                    // Rebuild cached label resources only when the swap chain size changes.
+                    // Creating CanvasTextFormat/CanvasTextLayout every frame is expensive
+                    // (font shaping + glyph metrics) and saturates the WGC thread at scale.
+                    if (_labelLayout == null || _labelLayoutSize != size)
+                    {
+                        _labelFormat?.Dispose();
+                        _labelLayout?.Dispose();
+
+                        _labelFormat = new CanvasTextFormat
+                        {
+                            FontFamily = "Segoe UI Variable",
+                            FontSize = 18f,
+                            FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                            VerticalAlignment = CanvasVerticalAlignment.Center,
+                        };
+                        _labelLayout = new CanvasTextLayout(
+                            _device, $"Capture {_capture.Id}", _labelFormat,
+                            (float)size.Width, (float)size.Height);
+                        _labelLayoutSize = size;
+                    }
+
+                    var tb = _labelLayout.LayoutBounds;
+                    const float padX = 12f, padY = 6f;
+                    var pill = new Rect(
+                        size.Width / 2 - tb.Width / 2 - padX,
+                        size.Height / 2 - tb.Height / 2 - padY,
+                        tb.Width + padX * 2,
+                        tb.Height + padY * 2);
+                    ds.FillRoundedRectangle(pill, 6f, 6f, Windows.UI.Color.FromArgb(140, 0, 0, 0));
+                    ds.DrawTextLayout(_labelLayout, 0f, 0f, Colors.White);
+                }
+
+                // syncInterval=0: do not block the WGC callback thread waiting for vblank.
+                // With syncInterval=1 (the default), each Present() blocks ~6.94ms (1/144Hz),
+                // so N lenses × 7ms serialized on thread 2 exceeds the 16.7ms frame budget
+                // past 2 lenses, causing the frame pool to throttle and XAML to stall.
+                // WGC governs the output rate naturally — no swap chain vsync needed.
+                swapChain.Present(0);
             }
             catch (Exception ex) when (IsDeviceLostHResult(ex.HResult))
             {
                 // GPU device lost — skip frame; next frame will attempt again.
+            }
+
+            // Accumulate draw timing; log a summary every 5 seconds.
+            var drawTicks = Stopwatch.GetTimestamp() - drawStart;
+            _frameDrawCount++;
+            _totalDrawTicks += drawTicks;
+            if (drawTicks > _maxDrawTicks) _maxDrawTicks = drawTicks;
+
+            var now = Stopwatch.GetTimestamp();
+            if (now - _lastDrawStatsTicks >= Stopwatch.Frequency * 5)
+            {
+                var avgMs = _totalDrawTicks * 1000.0 / Stopwatch.Frequency / _frameDrawCount;
+                var maxMs = _maxDrawTicks * 1000.0 / Stopwatch.Frequency;
+                var fps   = _frameDrawCount / 5.0;
+                AppLogger.Log($"  [perf] LensWindow {_capture.Id}: {fps:F1} fps, draw avg={avgMs:F2}ms max={maxMs:F2}ms thread={Environment.CurrentManagedThreadId}");
+                _frameDrawCount = 0;
+                _totalDrawTicks = 0;
+                _maxDrawTicks = 0;
+                _lastDrawStatsTicks = now;
             }
         }
 
@@ -231,6 +298,10 @@ namespace UIXtend.Core.UI
             {
                 _swapChain?.Dispose();
                 _swapChain = null;
+                _labelLayout?.Dispose();
+                _labelLayout = null;
+                _labelFormat?.Dispose();
+                _labelFormat = null;
             }
 
             _capture.Dispose();

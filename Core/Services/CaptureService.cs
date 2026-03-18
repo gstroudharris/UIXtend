@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas;
 using UIXtend.Core;
@@ -195,6 +196,13 @@ namespace UIXtend.Core.Services
         private SizeInt32 _captureSize;
         private bool _disposed;
 
+        // Dispatch timing — logged every 5 s to track frame budget consumption.
+        private int _dispatchCount;
+        private long _totalDispatchTicks;
+        private long _maxDispatchTicks;
+        private long _lastDispatchStatsTicks = Stopwatch.GetTimestamp();
+        private int _firstDispatchThreadId;
+
         public nint MonitorKey { get; }
         public int ViewCount { get { lock (_viewLock) return _views.Count; } }
 
@@ -254,6 +262,12 @@ namespace UIXtend.Core.Services
                 return; // Skip this frame; next one will be the correct size
             }
 
+            // Log the thread ID on the very first dispatch so we know which thread owns the frame loop.
+            if (_dispatchCount == 0)
+                AppLogger.Log($"MonitorCapture 0x{MonitorKey:X}: first dispatch on thread={Environment.CurrentManagedThreadId}");
+
+            var dispatchStart = Stopwatch.GetTimestamp();
+
             // Wrap the WGC surface as a CanvasBitmap — no GPU copy, zero overhead.
             // The bitmap is only valid while 'frame' is alive (end of this using block).
             // All views must process synchronously: GPU draw+present is fast enough.
@@ -264,6 +278,26 @@ namespace UIXtend.Core.Services
 
             foreach (var view in snapshot)
                 view.DeliverFrame(bitmap);
+
+            // Accumulate dispatch timing (includes all view draw+present work).
+            var dispatchTicks = Stopwatch.GetTimestamp() - dispatchStart;
+            _dispatchCount++;
+            _totalDispatchTicks += dispatchTicks;
+            if (dispatchTicks > _maxDispatchTicks) _maxDispatchTicks = dispatchTicks;
+
+            var now = Stopwatch.GetTimestamp();
+            if (now - _lastDispatchStatsTicks >= Stopwatch.Frequency * 5)
+            {
+                var avgMs  = _totalDispatchTicks * 1000.0 / Stopwatch.Frequency / _dispatchCount;
+                var maxMs  = _maxDispatchTicks  * 1000.0 / Stopwatch.Frequency;
+                var fps    = _dispatchCount / 5.0;
+                var views  = snapshot.Length;
+                AppLogger.Log($"[perf] MonitorCapture 0x{MonitorKey:X}: {fps:F1} fps, {views} views, dispatch avg={avgMs:F2}ms max={maxMs:F2}ms thread={Environment.CurrentManagedThreadId}");
+                _dispatchCount = 0;
+                _totalDispatchTicks = 0;
+                _maxDispatchTicks = 0;
+                _lastDispatchStatsTicks = now;
+            }
         }
 
         public void Dispose()
