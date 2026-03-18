@@ -220,6 +220,14 @@ namespace UIXtend.Core.Services
 #pragma warning disable CA1416
             _session.IsCursorCaptureEnabled = false;
 #pragma warning restore CA1416
+
+            // IsBorderRequired requires Windows 11 22H2 (SDK 22621); TFM now targets 22621.
+            // TargetPlatformMinVersion is still 17763, so CA1416 must be suppressed.
+#pragma warning disable CA1416
+            _session.IsBorderRequired = false;
+#pragma warning restore CA1416
+            AppLogger.Log("  IsBorderRequired = false (yellow border suppressed)");
+
             _session.StartCapture();
         }
 
