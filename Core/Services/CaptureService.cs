@@ -201,8 +201,6 @@ namespace UIXtend.Core.Services
         private long _totalDispatchTicks;
         private long _maxDispatchTicks;
         private long _lastDispatchStatsTicks = Stopwatch.GetTimestamp();
-        private int _firstDispatchThreadId;
-
         public nint MonitorKey { get; }
         public int ViewCount { get { lock (_viewLock) return _views.Count; } }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using UIXtend.Core;
 using Microsoft.UI.Dispatching;
@@ -7,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Composition.SystemBackdrops;
 using UIXtend.Core.Interfaces;
+using Microsoft.UI.Windowing;
 using Windows.Graphics;
 
 namespace UIXtend.Core.UI
@@ -46,7 +48,7 @@ namespace UIXtend.Core.UI
 
             var root = new Grid();
             root.Children.Add(_buttonPanel);
-            root.Loaded += (s, e) => SizeToContent();
+            root.Loaded += (s, e) => { SizeToContent(); CenterOnPrimaryDisplay(); };
             Content = root;
 
             // Hook up LensService after DI container is fully built.
@@ -67,6 +69,11 @@ namespace UIXtend.Core.UI
                 if (args.DidVisibilityChange)
                     _lensService?.SetOverlayVisible(AppWindow.IsVisible);
             };
+
+            // Pre-size and pre-center before Activate() so the window never appears at the
+            // default WinUI large size. SizeToContent()+CenterOnPrimaryDisplay() in root.Loaded
+            // will correct the exact pixel measurements once XamlRoot is available.
+            PreSizeAndCenter();
         }
 
         private async void OnSelectRegionClicked(object sender, RoutedEventArgs e)
@@ -172,6 +179,38 @@ namespace UIXtend.Core.UI
 
             SizeToContent();
         }
+
+        private void PreSizeAndCenter()
+        {
+            // GetDpiForWindow works on the HWND even before the window is shown.
+            var hwndPtr = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            uint dpi    = GetDpiForWindow(hwndPtr);
+            float scale = dpi / 96f;
+
+            // Estimate the compact window size in logical DIPs:
+            //   1 button:     MinWidth=200, template adds ~8px height → ~200×48 desired
+            //   panel margin: 24+24 H, 20+20 V
+            //   total logical: 248W × 88H + title bar
+            int preW = (int)Math.Ceiling(248 * scale);
+            int preH = (int)Math.Ceiling(88  * scale) + AppWindow.TitleBar.Height;
+
+            var wa = DisplayArea.Primary.WorkArea;
+            AppWindow.MoveAndResize(new RectInt32(
+                wa.X + (wa.Width  - preW) / 2,
+                wa.Y + (wa.Height - preH) / 2,
+                preW, preH));
+        }
+
+        private void CenterOnPrimaryDisplay()
+        {
+            var workArea = DisplayArea.Primary.WorkArea; // physical pixels, excludes taskbar
+            var size     = AppWindow.Size;
+            AppWindow.Move(new PointInt32(
+                workArea.X + (workArea.Width  - size.Width)  / 2,
+                workArea.Y + (workArea.Height - size.Height) / 2));
+        }
+
+        [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
 
         private void SizeToContent()
         {
