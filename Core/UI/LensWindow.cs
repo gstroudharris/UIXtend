@@ -4,11 +4,13 @@ using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using UIXtend.Core;
 using UIXtend.Core.Interfaces;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.Win32;
 using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Dwm;
 using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace UIXtend.Core.UI
@@ -45,19 +47,73 @@ namespace UIXtend.Core.UI
                 presenter.IsResizable = false;
             }
 
-            // Place the window at exactly the captured region — 1:1 physical pixels,
-            // no scaling, no border offset. The swap chain fills the entire client area.
+            var hwndPtr = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var hwnd = (HWND)hwndPtr;
+
+            AppLogger.Log($"LensWindow {capture.Id}: hwnd=0x{hwndPtr:X} region=({capture.Region.X},{capture.Region.Y} {capture.Region.Width}x{capture.Region.Height})");
+
+            // ── Pixel-perfect borderless ──────────────────────────────────────────
+            // SetWindowLong(WS_POPUP) changes the style but Windows won't recalculate
+            // the frame metrics until SWP_FRAMECHANGED is sent. Without it the old
+            // WS_DLGFRAME border (3 px per side) stays in the non-client area, making
+            // the client rect 6 px smaller than the outer window rect — exactly the
+            // black bar on the right and bottom. Apply the style change and force a
+            // frame recalculation BEFORE MoveAndResize so the outer rect = client rect.
+            var styleBefore = PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE);
+            var styleAfter = styleBefore & ~(int)WINDOW_STYLE.WS_OVERLAPPEDWINDOW | unchecked((int)WINDOW_STYLE.WS_POPUP);
+            PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE, styleAfter);
+            PInvoke.SetWindowPos(hwnd, default, 0, 0, 0, 0,
+                SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE |
+                SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE |
+                SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
+            AppLogger.Log($"  WS style: 0x{styleBefore:X8} -> 0x{styleAfter:X8} (SWP_FRAMECHANGED applied)");
+
+            // Now position the window — with WS_POPUP in effect the outer rect = client rect.
             AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
                 (int)capture.Region.X,
                 (int)capture.Region.Y,
                 (int)capture.Region.Width,
                 (int)capture.Region.Height));
 
+            unsafe
+            {
+                // Windows 11 rounds top-level window corners by default; the clipped area
+                // shows as white. Force square corners for pixel-perfect edges.
+                var pref = DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_DONOTROUND;
+                var hrCorner = PInvoke.DwmSetWindowAttribute(hwnd,
+                    DWMWINDOWATTRIBUTE.DWMWA_WINDOW_CORNER_PREFERENCE,
+                    &pref,
+                    (uint)sizeof(DWM_WINDOW_CORNER_PREFERENCE));
+                AppLogger.Log($"  DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND hr=0x{hrCorner.Value:X8} ({(hrCorner.Value == 0 ? "OK" : "FAILED")})");
+
+                // DWM adds a drop shadow that extends a few pixels beyond the window bounds
+                // on the right and bottom, causing both a visual artifact and a position offset.
+                // Disabling non-client rendering removes it entirely.
+                int ncrpDisabled = 1; // DWMNCRP_DISABLED
+                var hrNcr = PInvoke.DwmSetWindowAttribute(hwnd,
+                    DWMWINDOWATTRIBUTE.DWMWA_NCRENDERING_POLICY,
+                    &ncrpDisabled,
+                    (uint)sizeof(int));
+                AppLogger.Log($"  DWMWA_NCRENDERING_POLICY=DISABLED hr=0x{hrNcr.Value:X8} ({(hrNcr.Value == 0 ? "OK" : "FAILED")})");
+            }
+
             // ── Task 4: Capture Exclusion ─────────────────────────────────────────
             // WDA_EXCLUDEFROMCAPTURE makes this window invisible to all WGC sessions,
             // preventing the lens from appearing inside its own captured feed.
-            var hwnd = (HWND)WinRT.Interop.WindowNative.GetWindowHandle(this);
             PInvoke.SetWindowDisplayAffinity(hwnd, WINDOW_DISPLAY_AFFINITY.WDA_EXCLUDEFROMCAPTURE);
+
+            // ── Diagnostic: compare outer (window) rect vs inner (client) rect ─────
+            // If they differ, the non-client area is non-zero (border / DWM shadow).
+            unsafe
+            {
+                RECT winRect = default, clientRect = default;
+                PInvoke.GetWindowRect(hwnd, &winRect);
+                PInvoke.GetClientRect(hwnd, &clientRect);
+                AppLogger.Log($"  GetWindowRect:  ({winRect.left},{winRect.top}) {winRect.Width}x{winRect.Height}");
+                AppLogger.Log($"  GetClientRect:  ({clientRect.left},{clientRect.top}) {clientRect.Width}x{clientRect.Height}");
+                var exStyle = PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+                AppLogger.Log($"  WS_EX style:    0x{exStyle:X8}");
+            }
 
             AppWindow.Closing += OnAppWindowClosing;
         }
@@ -72,6 +128,8 @@ namespace UIXtend.Core.UI
                 var scale = (float)(_panel.XamlRoot?.RasterizationScale ?? 1.0);
                 var physW = Math.Max(1f, (float)_panel.ActualWidth * scale);
                 var physH = Math.Max(1f, (float)_panel.ActualHeight * scale);
+
+                AppLogger.Log($"  OnPanelLoaded id={_capture.Id}: panel={_panel.ActualWidth}x{_panel.ActualHeight} dips, scale={scale}, swapChain={physW}x{physH} phys");
 
                 // 96 DPI means 1 drawing unit = 1 physical pixel — simplest coordinate system.
                 _swapChain = new CanvasSwapChain(_device, physW, physH, 96f);

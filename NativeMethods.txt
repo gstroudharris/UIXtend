@@ -45,3 +45,8 @@ GetSystemMetrics
 SYSTEM_METRICS_INDEX
 MonitorFromRect
 SetWindowDisplayAffinity
+DwmSetWindowAttribute
+DWMWINDOWATTRIBUTE
+DWM_WINDOW_CORNER_PREFERENCE
+GetWindowRect
+GetClientRect
