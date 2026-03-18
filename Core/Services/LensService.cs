@@ -34,7 +34,8 @@ namespace UIXtend.Core.Services
         {
             AppLogger.Log($"OpenLens region=({globalRegion.X},{globalRegion.Y} {globalRegion.Width}x{globalRegion.Height})");
             var capture = _captureService.StartCapture(globalRegion);
-            var window = new LensWindow(capture, _renderService.Device);
+            var color = LensColorPalette.ForIndex(capture.Id - 1);
+            var window = new LensWindow(capture, _renderService.Device, color);
 
             window.LensClosed += OnLensWindowClosed;
             window.Activate();

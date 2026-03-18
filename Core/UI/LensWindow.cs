@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -19,6 +20,7 @@ namespace UIXtend.Core.UI
     {
         private readonly IRegionCapture _capture;
         private readonly CanvasDevice _device;
+        private readonly Windows.UI.Color _tintColor;
         private CanvasSwapChainPanel? _panel;
         private CanvasSwapChain? _swapChain;
         private readonly object _swapChainLock = new();
@@ -27,10 +29,11 @@ namespace UIXtend.Core.UI
         /// <summary>Fires with the capture ID when this window fully closes and cleans up.</summary>
         internal event Action<int>? LensClosed;
 
-        public LensWindow(IRegionCapture capture, CanvasDevice device)
+        public LensWindow(IRegionCapture capture, CanvasDevice device, Windows.UI.Color tintColor)
         {
             _capture = capture;
             _device = device;
+            _tintColor = tintColor;
 
             Title = $"UIXtend — Region {capture.Id}";
 
@@ -170,6 +173,33 @@ namespace UIXtend.Core.UI
                     fullMonitorBitmap,
                     new Rect(0, 0, size.Width, size.Height),
                     _capture.CropRect);
+                // Tint overlay: 50/255 ≈ 20% opacity
+                ds.FillRectangle(
+                    new Rect(0, 0, size.Width, size.Height),
+                    Windows.UI.Color.FromArgb(50, _tintColor.R, _tintColor.G, _tintColor.B));
+
+                // Centered label
+                var label = $"Capture {_capture.Id}";
+                using var fmt = new CanvasTextFormat
+                {
+                    FontFamily = "Segoe UI Variable",
+                    FontSize = 18f,
+                    FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                    HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                    VerticalAlignment = CanvasVerticalAlignment.Center,
+                };
+                // Semi-transparent dark background pill for legibility
+                using var layout = new CanvasTextLayout(ds, label, fmt, (float)size.Width, (float)size.Height);
+                var tb = layout.LayoutBounds;
+                const float padX = 12f, padY = 6f;
+                var pill = new Rect(
+                    size.Width / 2 - tb.Width / 2 - padX,
+                    size.Height / 2 - tb.Height / 2 - padY,
+                    tb.Width + padX * 2,
+                    tb.Height + padY * 2);
+                ds.FillRoundedRectangle(pill, 6f, 6f, Windows.UI.Color.FromArgb(140, 0, 0, 0));
+                ds.DrawTextLayout(layout, 0f, 0f, Colors.White);
+
                 swapChain.Present();
             }
             catch (Exception ex) when (IsDeviceLostHResult(ex.HResult))

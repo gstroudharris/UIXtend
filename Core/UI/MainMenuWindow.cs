@@ -129,13 +129,34 @@ namespace UIXtend.Core.UI
             foreach (var lens in _lensService.ActiveLenses)
             {
                 var capturedId = lens.Id; // local copy for lambda capture
+                var paletteColor = LensColorPalette.ForIndex(capturedId - 1);
+                var fgColor = LensColorPalette.GetForeground(paletteColor);
+                var hoverColor = LensColorPalette.Darken(paletteColor, 0.82);
+                var pressedColor = LensColorPalette.Darken(paletteColor, 0.65);
+
+                SolidColorBrush Brush(Windows.UI.Color c) => new(c);
+
                 var btn = new Button
                 {
-                    Content = $"Edit Screen Capture {capturedId}",
+                    Content = $"Close Capture {capturedId}",
                     HorizontalAlignment = HorizontalAlignment.Center,
                     MinWidth = 200,
                     MinHeight = 40
                 };
+
+                // Override button colour resources
+                btn.Resources["ButtonBackground"]              = Brush(paletteColor);
+                btn.Resources["ButtonBackgroundPointerOver"]   = Brush(hoverColor);
+                btn.Resources["ButtonBackgroundPressed"]        = Brush(pressedColor);
+                btn.Resources["ButtonBackgroundDisabled"]       = Brush(paletteColor);
+                btn.Resources["ButtonForeground"]              = Brush(fgColor);
+                btn.Resources["ButtonForegroundPointerOver"]   = Brush(fgColor);
+                btn.Resources["ButtonForegroundPressed"]        = Brush(fgColor);
+                btn.Resources["ButtonForegroundDisabled"]       = Brush(fgColor);
+                btn.Resources["ButtonBorderBrush"]             = Brush(pressedColor);
+                btn.Resources["ButtonBorderBrushPointerOver"]  = Brush(pressedColor);
+                btn.Resources["ButtonBorderBrushPressed"]       = Brush(pressedColor);
+
                 btn.Click += (s, e) => _lensService?.CloseLens(capturedId);
                 _buttonPanel.Children.Add(btn);
             }
