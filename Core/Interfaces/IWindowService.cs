@@ -13,5 +13,6 @@ namespace UIXtend.Core.Interfaces
         /// Creates the main overlay window with WS_EX_TOOLWINDOW and WS_EX_TRANSPARENT styles.
         /// </summary>
         void CreateWindow();
+        void ShowMainMenu();
     }
 }

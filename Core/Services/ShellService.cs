@@ -10,6 +10,7 @@ namespace UIXtend.Core.Services
 {
     public class ShellService : IShellService
     {
+        public event Action? OnOpenMenuRequested;
         private HWND _messageWindowHandle;
         private const uint WM_TRAYICON = PInvoke.WM_USER + 1;
         private WNDPROC? _wndProcDelegate; // Prevent GC
@@ -60,6 +61,10 @@ namespace UIXtend.Core.Services
                 {
                     ShowContextMenu();
                 }
+                else if (lparamMsg == PInvoke.WM_LBUTTONDBLCLK)
+                {
+                    OnOpenMenuRequested?.Invoke();
+                }
             }
             return PInvoke.DefWindowProc(hwnd, msg, wParam, lParam);
         }
@@ -72,6 +77,9 @@ namespace UIXtend.Core.Services
             PInvoke.GetCursorPos(out var pt);
             
             var hMenu = PInvoke.CreatePopupMenu();
+            
+            // ID 2 for Open
+            AppendMenuW((IntPtr)hMenu.Value, 0x0000, 2, "Open UIXtend");
             // ID 1 for Exit, MF_STRING is 0
             AppendMenuW((IntPtr)hMenu.Value, 0x0000, 1, "Exit UIXtend");
 
@@ -82,7 +90,19 @@ namespace UIXtend.Core.Services
 
             if (cmd.Value == 1)
             {
-                PInvoke.PostQuitMessage(0); // This exits the GetMessage loop in Program.cs
+                // Hide tray instantly for a snappy "instant quit" UX instead of waiting for full teardown
+                HideTrayIcon();
+                
+                // Spin up a graceful host stoppage and forcefully exit the WinUI environment loops
+                System.Threading.Tasks.Task.Run(() => 
+                {
+                    ServiceHost.StopAsync().GetAwaiter().GetResult();
+                    Environment.Exit(0);
+                });
+            }
+            else if (cmd.Value == 2)
+            {
+                OnOpenMenuRequested?.Invoke();
             }
 
             PInvoke.DestroyMenu(hMenu);
