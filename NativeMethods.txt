@@ -43,3 +43,5 @@ ShowCursor
 GetAsyncKeyState
 GetSystemMetrics
 SYSTEM_METRICS_INDEX
+MonitorFromRect
+SetWindowDisplayAffinity

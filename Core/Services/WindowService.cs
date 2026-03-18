@@ -1,6 +1,9 @@
 using System;
 using UIXtend.Core.Interfaces;
 using UIXtend.Core.UI;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace UIXtend.Core.Services
 {
@@ -8,6 +11,7 @@ namespace UIXtend.Core.Services
     {
         private readonly IShellService _shellService;
         private MainMenuWindow? _mainMenuWindow;
+        private bool _isShuttingDown;
 
         public IntPtr MainWindowHandle { get; private set; }
 
@@ -18,12 +22,8 @@ namespace UIXtend.Core.Services
 
         public void Initialize()
         {
-            // Initialization for Window Management
             CreateWindow();
-
             _shellService.OnOpenMenuRequested += ShowMainMenu;
-
-            // Automatically open the Main Menu immediately after startup
             ShowMainMenu();
         }
 
@@ -32,12 +32,21 @@ namespace UIXtend.Core.Services
             if (_mainMenuWindow == null)
             {
                 _mainMenuWindow = new MainMenuWindow();
-                // Instead of destroying the window on close, cancel it and hide it (Minimize to Tray)
-                _mainMenuWindow.AppWindow.Closing += (s, e) => 
+
+                // Minimize to tray on close rather than destroying the window,
+                // unless we are in a controlled shutdown.
+                _mainMenuWindow.AppWindow.Closing += (s, e) =>
                 {
+                    if (_isShuttingDown) return;
                     e.Cancel = true;
                     _mainMenuWindow.AppWindow.Hide();
                 };
+
+                // ── Task 4: Capture Exclusion ─────────────────────────────────────
+                // Exclude the main menu from all WGC capture sessions so it never
+                // appears inside a user's captured region or lens feed.
+                var hwnd = (HWND)WinRT.Interop.WindowNative.GetWindowHandle(_mainMenuWindow);
+                PInvoke.SetWindowDisplayAffinity(hwnd, WINDOW_DISPLAY_AFFINITY.WDA_EXCLUDEFROMCAPTURE);
             }
 
             _mainMenuWindow.AppWindow.Show();
@@ -46,12 +55,20 @@ namespace UIXtend.Core.Services
 
         public void CreateWindow()
         {
-            // Create hidden or tool window, set styles WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT
+            // Reserved: hidden/tool overlay window, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT
+        }
+
+        public void Shutdown()
+        {
+            if (_isShuttingDown) return;
+            _isShuttingDown = true;
+            _mainMenuWindow?.Close();
+            _mainMenuWindow = null;
         }
 
         public void Dispose()
         {
-            // Cleanup HWND
+            Shutdown();
             GC.SuppressFinalize(this);
         }
     }

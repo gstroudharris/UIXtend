@@ -8,6 +8,7 @@ namespace UIXtend.Core.Interfaces
     public interface IShellService : IService
     {
         event Action OnOpenMenuRequested;
+        event Action OnExitRequested;
         void ShowTrayIcon();
         void HideTrayIcon();
     }

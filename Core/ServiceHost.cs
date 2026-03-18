@@ -25,18 +25,25 @@ namespace UIXtend.Core
                     // Register Core Services (Implementation classes)
                     services.AddSingleton<WindowService>();
                     services.AddSingleton<RenderService>();
+                    services.AddSingleton<CaptureService>();
+                    services.AddSingleton<LensService>();
                     services.AddSingleton<ShellService>();
                     services.AddSingleton<RegionSelectionService>();
 
                     // Forward interface resolution to the registered implementations
                     services.AddSingleton<IWindowService>(sp => sp.GetRequiredService<WindowService>());
                     services.AddSingleton<IRenderService>(sp => sp.GetRequiredService<RenderService>());
+                    services.AddSingleton<ICaptureService>(sp => sp.GetRequiredService<CaptureService>());
+                    services.AddSingleton<ILensService>(sp => sp.GetRequiredService<LensService>());
                     services.AddSingleton<IShellService>(sp => sp.GetRequiredService<ShellService>());
                     services.AddSingleton<IRegionSelectionService>(sp => sp.GetRequiredService<RegionSelectionService>());
 
                     // Register them as IService for the Bootstrapper to find them
+                    // Order matters: RenderService must Initialize() before CaptureService
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<WindowService>());
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<RenderService>());
+                    services.AddSingleton<IService>(sp => sp.GetRequiredService<CaptureService>());
+                    services.AddSingleton<IService>(sp => sp.GetRequiredService<LensService>());
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<ShellService>());
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<RegionSelectionService>());
 
@@ -76,7 +83,9 @@ namespace UIXtend.Core
         {
             foreach (var service in _services)
             {
+                AppLogger.Log($"Initializing {service.GetType().Name}");
                 service.Initialize();
+                AppLogger.Log($"  {service.GetType().Name} ready");
             }
             return Task.CompletedTask;
         }
@@ -85,6 +94,7 @@ namespace UIXtend.Core
         {
             foreach (var service in _services)
             {
+                AppLogger.Log($"Disposing {service.GetType().Name}");
                 service.Dispose();
             }
             return Task.CompletedTask;

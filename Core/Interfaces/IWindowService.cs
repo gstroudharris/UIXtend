@@ -14,5 +14,6 @@ namespace UIXtend.Core.Interfaces
         /// </summary>
         void CreateWindow();
         void ShowMainMenu();
+        void Shutdown();
     }
 }

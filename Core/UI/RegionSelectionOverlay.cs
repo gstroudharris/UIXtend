@@ -102,8 +102,8 @@ namespace UIXtend.Core.UI
             sb.Children.Add(anim);
             sb.Completed += (s, e) =>
             {
+                onCompleted?.Invoke(); // resolve the TCS before Close() fires the Closed event
                 this.Close();
-                onCompleted?.Invoke();
             };
             sb.Begin();
         }

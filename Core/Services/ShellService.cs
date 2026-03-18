@@ -11,6 +11,7 @@ namespace UIXtend.Core.Services
     public class ShellService : IShellService
     {
         public event Action? OnOpenMenuRequested;
+        public event Action? OnExitRequested;
         private HWND _messageWindowHandle;
         private const uint WM_TRAYICON = PInvoke.WM_USER + 1;
         private WNDPROC? _wndProcDelegate; // Prevent GC
@@ -90,15 +91,9 @@ namespace UIXtend.Core.Services
 
             if (cmd.Value == 1)
             {
-                // Hide tray instantly for a snappy "instant quit" UX instead of waiting for full teardown
+                // Hide tray instantly for a snappy UX — shutdown is handled by the subscriber
                 HideTrayIcon();
-                
-                // Spin up a graceful host stoppage and forcefully exit the WinUI environment loops
-                System.Threading.Tasks.Task.Run(() => 
-                {
-                    ServiceHost.StopAsync().GetAwaiter().GetResult();
-                    Environment.Exit(0);
-                });
+                OnExitRequested?.Invoke();
             }
             else if (cmd.Value == 2)
             {
