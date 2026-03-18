@@ -48,6 +48,7 @@ namespace UIXtend.Core.Services
                 {
                     presenter.IsResizable = false;
                     presenter.IsMaximizable = false;
+                    presenter.IsAlwaysOnTop = true;
                 }
 
                 // ── Task 4: Capture Exclusion ─────────────────────────────────────
