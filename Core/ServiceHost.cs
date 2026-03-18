@@ -26,16 +26,19 @@ namespace UIXtend.Core
                     services.AddSingleton<WindowService>();
                     services.AddSingleton<RenderService>();
                     services.AddSingleton<ShellService>();
+                    services.AddSingleton<RegionSelectionService>();
 
                     // Forward interface resolution to the registered implementations
                     services.AddSingleton<IWindowService>(sp => sp.GetRequiredService<WindowService>());
                     services.AddSingleton<IRenderService>(sp => sp.GetRequiredService<RenderService>());
                     services.AddSingleton<IShellService>(sp => sp.GetRequiredService<ShellService>());
+                    services.AddSingleton<IRegionSelectionService>(sp => sp.GetRequiredService<RegionSelectionService>());
 
                     // Register them as IService for the Bootstrapper to find them
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<WindowService>());
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<RenderService>());
                     services.AddSingleton<IService>(sp => sp.GetRequiredService<ShellService>());
+                    services.AddSingleton<IService>(sp => sp.GetRequiredService<RegionSelectionService>());
 
                     // Add the bootstrapper to run Initialize() on IService instances
                     services.AddHostedService<BootstrapperHostedService>();
