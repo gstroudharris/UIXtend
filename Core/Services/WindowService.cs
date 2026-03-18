@@ -42,6 +42,14 @@ namespace UIXtend.Core.Services
                     _mainMenuWindow.AppWindow.Hide();
                 };
 
+                // The window auto-sizes to its button content — prevent manual resizing
+                // so the user can't shrink it below the content size.
+                if (_mainMenuWindow.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+                {
+                    presenter.IsResizable = false;
+                    presenter.IsMaximizable = false;
+                }
+
                 // ── Task 4: Capture Exclusion ─────────────────────────────────────
                 // Exclude the main menu from all WGC capture sessions so it never
                 // appears inside a user's captured region or lens feed.

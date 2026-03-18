@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Composition.SystemBackdrops;
 using UIXtend.Core.Interfaces;
+using Windows.Graphics;
 
 namespace UIXtend.Core.UI
 {
@@ -38,12 +39,14 @@ namespace UIXtend.Core.UI
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Spacing = 8
+                Spacing = 8,
+                Margin = new Thickness(24, 20, 24, 20)
             };
             _buttonPanel.Children.Add(_selectRegionBtn);
 
             var root = new Grid();
             root.Children.Add(_buttonPanel);
+            root.Loaded += (s, e) => SizeToContent();
             Content = root;
 
             // Hook up LensService after DI container is fully built.
@@ -136,6 +139,30 @@ namespace UIXtend.Core.UI
                 btn.Click += (s, e) => _lensService?.CloseLens(capturedId);
                 _buttonPanel.Children.Add(btn);
             }
+
+            SizeToContent();
+        }
+
+        private void SizeToContent()
+        {
+            if (Content?.XamlRoot == null) return;
+
+            // Measure the panel unconstrained so WinUI reports the true content size,
+            // accounting for the button control template's internal padding and font metrics
+            // rather than relying on our MinWidth/MinHeight guesses.
+            _buttonPanel.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var desired = _buttonPanel.DesiredSize; // logical px, excludes Margin
+            var margin  = _buttonPanel.Margin;
+
+            var logicalW = desired.Width  + margin.Left + margin.Right;
+            var logicalH = desired.Height + margin.Top  + margin.Bottom;
+
+            // AppWindow coordinates are physical pixels; scale logical values accordingly.
+            var scale = Content.XamlRoot.RasterizationScale;
+            var physW = (int)Math.Ceiling(logicalW * scale);
+            var physH = (int)Math.Ceiling(logicalH * scale) + AppWindow.TitleBar.Height;
+
+            AppWindow.Resize(new SizeInt32(physW, physH));
         }
     }
 }
