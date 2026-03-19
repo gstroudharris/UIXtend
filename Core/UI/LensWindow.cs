@@ -37,6 +37,7 @@ namespace UIXtend.Core.UI
         private float _pendingSwapW, _pendingSwapH;   // set on UI thread, consumed on render thread
         private Grid? _chromeGrid;
         private CursorBorder? _topBarElement;   // kept for cursor updates during drag
+        private CursorBorder? _contentSurface;  // input-forwarding hit surface (below top bar)
         private bool _showOverlay = true;
         private bool _closed;
         private readonly Stopwatch _openStopwatch = Stopwatch.StartNew();
@@ -291,11 +292,15 @@ namespace UIXtend.Core.UI
             toggleBtn.Checked   += (s, e) =>
             {
                 _inputForwardingEnabled = true;
+                if (_contentSurface != null)
+                    _contentSurface.IsHitTestVisible = true;
                 AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding ON");
             };
             toggleBtn.Unchecked += (s, e) =>
             {
                 _inputForwardingEnabled = false;
+                if (_contentSurface != null)
+                    _contentSurface.IsHitTestVisible = false;
                 AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF");
             };
 
@@ -387,9 +392,25 @@ namespace UIXtend.Core.UI
             WireResizeHandle(blH,     ResizeEdge.BottomLeft);
             WireResizeHandle(brH,     ResizeEdge.BottomRight);
 
+            // ── Input-forwarding content surface ──────────────────────────────────
+            // Transparent hit surface covering the capture area below the top bar.
+            // Sits below the resize handles in z-order so edge handles still win.
+            // IsHitTestVisible is toggled by the mode button; off by default so the
+            // window behaves as a normal overlay until the user enables forwarding.
+            // A non-null Background is required — WinUI only hit-tests borders that
+            // have an explicitly set background (even if fully transparent).
+            _contentSurface = new CursorBorder
+            {
+                Margin              = new Thickness(0, TopBarLogicalH, 0, 0),
+                Background          = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+                IsHitTestVisible    = false,
+                Cursor              = InputSystemCursorShape.Cross
+            };
+
             var chrome = new Grid { Visibility = Visibility.Visible };
             chrome.Children.Add(tintOverlay);
             chrome.Children.Add(edgeBorder);
+            chrome.Children.Add(_contentSurface); // below top bar + resize handles in z-order
             chrome.Children.Add(_topBarElement);
             chrome.Children.Add(bottomH);
             chrome.Children.Add(leftH);
