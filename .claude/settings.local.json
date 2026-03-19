@@ -16,7 +16,8 @@
       "Bash(find D:/Dev/UIXtend/UIXtend/obj/Debug/net10.0-windows10.0.22621.0/win-x64/generated -name *.cs)",
       "Bash(grep -A6 static.*PostMessage D:/Dev/UIXtend/UIXtend/obj/Debug/net10.0-windows10.0.22621.0/win-x64/generated/Microsoft.Windows.CsWin32/Microsoft.Windows.CsWin32.SourceGenerator/Windows.Win32.PInvoke.USER32.dll.g.cs)",
       "Bash(head -15 Core/Services/*.cs)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(powershell -Command \"Get-ChildItem ''D:\\\\Dev\\\\UIXtend\\\\UIXtend\\\\assets\\\\*.png'' | Select-Object Name, Length | Format-Table -AutoSize\")"
     ]
   }
 }

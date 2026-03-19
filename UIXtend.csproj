@@ -6,13 +6,16 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>UIXtend</RootNamespace>
     <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <EnableMsixTooling>false</EnableMsixTooling>
-    <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
-    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
-    <BuildAppxUploadPackageForUap>false</BuildAppxUploadPackageForUap>
-    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <EnableCoreMrtTooling>true</EnableCoreMrtTooling>
+    <!-- Thumbprint of the local self-signed cert — run GenerateCert.ps1 to populate -->
+    <PackageCertificateThumbprint>6B3FA6C835D46770386FF501C111DAD283A1CCF3</PackageCertificateThumbprint>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <AppxPackageDir>..\AppPackages\</AppxPackageDir>
+    <AppxBundle>Never</AppxBundle>
+    <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
     <ApplicationIcon>assets\UIXtend.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -24,6 +27,8 @@
   <ItemGroup>
     <Content Include="assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- To produce a release, run MakeRelease.ps1 (as Administrator). -->
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.241114003" />
