@@ -610,6 +610,60 @@ namespace UIXtend.Core.UI
                         break;
                 }
 
+                // Shift → constrain to source capture aspect ratio
+                if (e.KeyModifiers.HasFlag(Windows.System.VirtualKeyModifiers.Shift))
+                {
+                    double aspect = _capture.CropRect.Width / _capture.CropRect.Height;
+
+                    switch (_resizeEdge)
+                    {
+                        case ResizeEdge.Bottom:
+                            // Height is primary; derive width and anchor left edge
+                            w = Math.Max(minW, (int)Math.Round(h * aspect));
+                            h = Math.Max(minH, (int)Math.Round(w / aspect));
+                            break;
+
+                        case ResizeEdge.Left:
+                            // Width is primary; derive height, re-anchor left edge
+                            h = Math.Max(minH, (int)Math.Round(w / aspect));
+                            w = Math.Max(minW, (int)Math.Round(h * aspect));
+                            x = _resizeOrigRect.X + _resizeOrigRect.Width - w;
+                            break;
+
+                        case ResizeEdge.Right:
+                            // Width is primary; derive height, left edge stays
+                            h = Math.Max(minH, (int)Math.Round(w / aspect));
+                            w = Math.Max(minW, (int)Math.Round(h * aspect));
+                            break;
+
+                        case ResizeEdge.BottomLeft:
+                        case ResizeEdge.BottomRight:
+                        {
+                            // The "larger delta drives" heuristic switches primary axis as dx/dy
+                            // cross the |dx|==|dy| boundary, producing a discontinuous jump.
+                            // Instead, project the cursor's target size onto the constraint line:
+                            //
+                            //   Minimise (w − targetW)² + (h − targetH)²  s.t.  h = w / aspect
+                            //   → w = aspect × (targetW × aspect + targetH) / (aspect² + 1)
+                            //
+                            // This is smooth and continuous at every cursor position.
+                            double targetW = _resizeOrigRect.Width +
+                                             (_resizeEdge == ResizeEdge.BottomLeft ? -dx : dx);
+                            double targetH = _resizeOrigRect.Height + dy;
+                            double wProj   = aspect * (targetW * aspect + targetH) / (aspect * aspect + 1.0);
+                            w = Math.Max(minW, (int)Math.Round(wProj));
+                            h = Math.Max(minH, (int)Math.Round(w / aspect));
+                            w = Math.Max(minW, (int)Math.Round(h * aspect)); // re-clamp if minH floored h
+
+                            if (_resizeEdge == ResizeEdge.BottomLeft)
+                                x = _resizeOrigRect.X + _resizeOrigRect.Width - w;
+                            else
+                                x = _resizeOrigRect.X;
+                            break;
+                        }
+                    }
+                }
+
                 var newRect = new RectInt32(x, y, w, h);
                 AppLogger.Log($"  LensWindow {_capture.Id}: DoResize {_resizeEdge} cursor=({pt.X},{pt.Y}) d=({dx},{dy}) -> rect=({newRect.X},{newRect.Y} {newRect.Width}x{newRect.Height})");
                 AppWindow.MoveAndResize(newRect);
