@@ -1,3 +1,6 @@
+// Copyright (C) 2026  Grant Harris
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 using Microsoft.Graphics.Canvas;
 
 namespace UIXtend.Core.Interfaces
