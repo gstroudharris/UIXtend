@@ -62,6 +62,9 @@ namespace UIXtend.Core.UI
                 _acrylicController = null;
             };
 
+            // Window icon — shown in the taskbar and the alt-tab thumbnail.
+            AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "assets", "UIXtend.ico"));
+
             // Extend the acrylic surface into the title bar so it reads as one continuous surface.
             // Caption buttons are kept but their backgrounds are made transparent so they
             // sit over the Mica material rather than over a separate opaque strip.

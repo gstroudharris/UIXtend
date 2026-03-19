@@ -399,3 +399,37 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# ── UIXtend additions ──────────────────────────────────────────────────────────
+
+# Claude Code project data (conversation history, local settings)
+.claude/
+
+# Secrets / local config
+.env
+.env.*
+appsettings.*.json
+!appsettings.json
+secrets.json
+
+# Windows packaging outputs
+*.msixupload
+*.appinstaller
+
+# Crash dumps
+*.dmp
+*.dump
+
+# Distribution output
+dist/
+
+# OS-generated junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Other IDEs (JetBrains, Vim)
+.idea/
+*.swp
+*.swo

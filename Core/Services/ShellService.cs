@@ -73,6 +73,13 @@ namespace UIXtend.Core.Services
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool AppendMenuW(IntPtr hMenu, uint uFlags, nuint uIDNewItem, string lpNewItem);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadImage(IntPtr hinst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
+
+        private const uint IMAGE_ICON     = 1;
+        private const uint LR_LOADFROMFILE = 0x0010;
+        private const uint LR_DEFAULTSIZE  = 0x0040;
+
         private unsafe void ShowContextMenu()
         {
             PInvoke.GetCursorPos(out var pt);
@@ -103,6 +110,16 @@ namespace UIXtend.Core.Services
             PInvoke.DestroyMenu(hMenu);
         }
 
+        private unsafe HICON LoadCustomIcon()
+        {
+            var path = System.IO.Path.Combine(AppContext.BaseDirectory, "assets", "UIXtend.ico");
+            var ptr  = LoadImage(IntPtr.Zero, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            // Fall back to the default app icon if the file is missing
+            return ptr != IntPtr.Zero
+                ? new HICON(ptr)
+                : PInvoke.LoadIcon(default, (PCWSTR)(char*)32512);
+        }
+
         public unsafe void ShowTrayIcon()
         {
             var nid = new NOTIFYICONDATAW
@@ -112,7 +129,7 @@ namespace UIXtend.Core.Services
                 uID = 1,
                 uFlags = NOTIFY_ICON_DATA_FLAGS.NIF_MESSAGE | NOTIFY_ICON_DATA_FLAGS.NIF_ICON | NOTIFY_ICON_DATA_FLAGS.NIF_TIP,
                 uCallbackMessage = WM_TRAYICON,
-                hIcon = PInvoke.LoadIcon(default, (PCWSTR)(char*)32512), // IDI_APPLICATION
+                hIcon = LoadCustomIcon(), // UIXtend.ico
             };
             
             var tipStr = "UIXtend Overlay";

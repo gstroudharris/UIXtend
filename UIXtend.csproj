@@ -13,6 +13,7 @@
     <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
     <BuildAppxUploadPackageForUap>false</BuildAppxUploadPackageForUap>
     <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <ApplicationIcon>assets\UIXtend.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>x64</Platforms>
