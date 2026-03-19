@@ -64,15 +64,25 @@ namespace UIXtend.Core.Services
             if (entry == default) return;
 
             AppLogger.Log($"CloseLens id={id}");
-            // Close() triggers AppWindow.Closing → LensWindow cleanup → LensClosed event
+            // Remove eagerly so the MainMenu button disappears immediately on click,
+            // without waiting for the async AppWindow.Closing → LensClosed chain.
+            _active.RemoveAll(a => a.Capture.Id == id);
+            LensesChanged?.Invoke(this, EventArgs.Empty);
+
+            // Close the window; CleanupResources/LensClosed will fire asynchronously
+            // but OnLensWindowClosed will skip the second LensesChanged since the
+            // entry is already gone.
             entry.Window.Close();
         }
 
         private void OnLensWindowClosed(int id)
         {
-            _active.RemoveAll(a => a.Capture.Id == id);
-            AppLogger.Log($"  Lens {id} closed");
-            LensesChanged?.Invoke(this, EventArgs.Empty);
+            // RemoveAll returns the number of entries removed; if CloseLens already
+            // removed the entry, skip the redundant LensesChanged notification.
+            int removed = _active.RemoveAll(a => a.Capture.Id == id);
+            AppLogger.Log($"  Lens {id} closed (removed={removed})");
+            if (removed > 0)
+                LensesChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void Dispose()

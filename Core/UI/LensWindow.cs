@@ -173,6 +173,10 @@ namespace UIXtend.Core.UI
             }
 
             AppWindow.Closing += OnAppWindowClosing;
+            // Window.Closed fires after the HWND is actually destroyed — reliable fallback
+            // for popup-style windows where AppWindow.Closing may not fire via WM_CLOSE.
+            // CleanupResources is idempotent so firing twice is harmless.
+            this.Closed += (_, _) => CleanupResources();
         }
 
         // ═════════════════════════════════════════════════════════════════════════
