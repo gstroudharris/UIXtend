@@ -3,7 +3,9 @@
     "allow": [
       "Bash(find /d/Dev/UIXtend/UIXtend -type d -not -path */bin/* -not -path */obj/* -not -path */.vs/*)",
       "Bash(grep -E \"\\\\.\\(json|config|xml|txt\\)$\")",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "WebSearch",
+      "Bash(dir \"D:\\\\Dev\\\\UIXtend\\\\UIXtend\\\\bin\\\\Debug\\\\net10.0-windows10.0.22621.0\\\\win-x64\\\\assets\")"
     ]
   }
 }

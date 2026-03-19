@@ -10,6 +10,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using UIXtend.Core;
@@ -40,6 +41,9 @@ namespace UIXtend.Core.UI
         private bool _closed;
         private readonly Stopwatch _openStopwatch = Stopwatch.StartNew();
         private bool _firstFrameLogged;
+
+        // ── Input forwarding state ────────────────────────────────────────────────
+        private bool _inputForwardingEnabled;
 
         private nint _hwndPtr;
         private float _dpiScale = 1f;
@@ -231,12 +235,79 @@ namespace UIXtend.Core.UI
             closeBtn.Resources["ButtonBorderBrushPressed"]     = Trans();
             closeBtn.Click += (s, e) => this.Close();
 
+            // ── Interactive-mode toggle button ────────────────────────────────────
+            // BitmapIcon with ShowAsMonochrome=true treats the PNG as a mask:
+            // dark pixels → foreground colour, transparent pixels → transparent.
+            // The Fluent icon (dark cursor on transparent bg) tints correctly with
+            // whatever ToggleButtonForeground* resource is active for the current state.
+            // AppContext.BaseDirectory resolves to the exe folder; the asset is copied
+            // there by the <Content> item in the csproj (unpackaged app — no ms-appx://).
+            var toggleBtnIconUri = new Uri(
+                System.IO.Path.Combine(
+                    AppContext.BaseDirectory,
+                    "assets",
+                    "ic_fluent_cursor_click_24_filled.png"));
+            var toggleBtn = new ToggleButton
+            {
+                Content = new BitmapIcon
+                {
+                    UriSource        = toggleBtnIconUri,
+                    ShowAsMonochrome = true,
+                    Width            = 16,
+                    Height           = 16
+                },
+                Width                      = CloseButtonLogicalW,
+                Padding                    = new Thickness(0),
+                HorizontalAlignment        = HorizontalAlignment.Right,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment   = VerticalAlignment.Center,
+                VerticalAlignment          = VerticalAlignment.Stretch
+            };
+            ToolTipService.SetToolTip(toggleBtn, "Toggle input forwarding");
+            // Unchecked state — matches close button transparency
+            toggleBtn.Resources["ToggleButtonBackground"]                        = Trans();
+            toggleBtn.Resources["ToggleButtonBackgroundPointerOver"]             = Hover();
+            toggleBtn.Resources["ToggleButtonBackgroundPressed"]                 = Press();
+            toggleBtn.Resources["ToggleButtonBackgroundDisabled"]                = Trans();
+            toggleBtn.Resources["ToggleButtonForeground"]                        = FgBrush();
+            toggleBtn.Resources["ToggleButtonForegroundPointerOver"]             = FgBrush();
+            toggleBtn.Resources["ToggleButtonForegroundPressed"]                 = FgBrush();
+            toggleBtn.Resources["ToggleButtonBorderBrush"]                       = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushPointerOver"]            = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushPressed"]                = Trans();
+            // Checked state — slightly brighter so it reads as "on"
+            SolidColorBrush CheckedBg()     => new(Windows.UI.Color.FromArgb(120, 255, 255, 255));
+            SolidColorBrush CheckedBgHov()  => new(Windows.UI.Color.FromArgb(160, 255, 255, 255));
+            SolidColorBrush CheckedFg()     => new(Windows.UI.Color.FromArgb(255,   0,   0,   0));
+            toggleBtn.Resources["ToggleButtonBackgroundChecked"]                 = CheckedBg();
+            toggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"]      = CheckedBgHov();
+            toggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]          = CheckedBg();
+            toggleBtn.Resources["ToggleButtonForegroundChecked"]                 = CheckedFg();
+            toggleBtn.Resources["ToggleButtonForegroundCheckedPointerOver"]      = CheckedFg();
+            toggleBtn.Resources["ToggleButtonForegroundCheckedPressed"]          = CheckedFg();
+            toggleBtn.Resources["ToggleButtonBorderBrushChecked"]                = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]     = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]         = Trans();
+            toggleBtn.Checked   += (s, e) =>
+            {
+                _inputForwardingEnabled = true;
+                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding ON");
+            };
+            toggleBtn.Unchecked += (s, e) =>
+            {
+                _inputForwardingEnabled = false;
+                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF");
+            };
+
             var topBarContent = new Grid();
             topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(label,    0);
-            Grid.SetColumn(closeBtn, 1);
+            topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(label,     0);
+            Grid.SetColumn(toggleBtn, 1);
+            Grid.SetColumn(closeBtn,  2);
             topBarContent.Children.Add(label);
+            topBarContent.Children.Add(toggleBtn);
             topBarContent.Children.Add(closeBtn);
 
             // CursorBorder lets us set ProtectedCursor (WinUI 3's official cursor API).
@@ -346,7 +417,8 @@ namespace UIXtend.Core.UI
         {
             var pt       = e.GetCurrentPoint(null).Position;
             var logicalW = AppWindow.Size.Width / _dpiScale;
-            if (pt.X >= logicalW - CloseButtonLogicalW) return;
+            // Both toggle button and close button occupy the rightmost two button widths
+            if (pt.X >= logicalW - CloseButtonLogicalW * 2) return;
 
             GetCursorPos(out var cursor);
             _isDragging  = true;
