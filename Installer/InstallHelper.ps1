@@ -91,9 +91,10 @@ try {
     $aumid   = $pkg.PackageFamilyName + "!App"
     $desktop = [Environment]::GetFolderPath("Desktop")
     $lnk     = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\UIXtend.lnk")
-    $lnk.TargetPath  = "explorer.exe"
-    $lnk.Arguments   = "shell:AppsFolder\$aumid"
-    $lnk.Description = "UIXtend screen overlay"
+    $lnk.TargetPath   = "explorer.exe"
+    $lnk.Arguments    = "shell:AppsFolder\$aumid"
+    $lnk.Description  = "UIXtend screen overlay"
+    $lnk.IconLocation = (Join-Path $pkg.InstallLocation "assets\UIXtend.ico") + ",0"
     $lnk.Save()
     Log "Desktop shortcut created."
 } catch {
