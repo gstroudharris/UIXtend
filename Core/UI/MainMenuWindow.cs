@@ -17,6 +17,7 @@ namespace UIXtend.Core.UI
     {
         private readonly StackPanel _buttonPanel;
         private readonly Button _selectRegionBtn;
+        private readonly Button _closeConfigBtn;
         private readonly DispatcherQueue _dispatcher;
         private ILensService? _lensService;
 
@@ -36,6 +37,15 @@ namespace UIXtend.Core.UI
                 MinHeight = 40
             };
             _selectRegionBtn.Click += OnSelectRegionClicked;
+
+            _closeConfigBtn = new Button
+            {
+                Content              = "Close configuration",
+                HorizontalAlignment  = HorizontalAlignment.Center,
+                MinWidth             = 200,
+                MinHeight            = 40
+            };
+            _closeConfigBtn.Click += (_, _) => AppWindow.Hide();
 
             _buttonPanel = new StackPanel
             {
@@ -177,6 +187,7 @@ namespace UIXtend.Core.UI
                 _buttonPanel.Children.Add(btn);
             }
 
+            _buttonPanel.Children.Add(_closeConfigBtn);
             SizeToContent();
         }
 
