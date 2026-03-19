@@ -254,6 +254,21 @@ namespace UIXtend.Core.Services
         {
             if (_disposed) return;
 
+            // Any unhandled exception here escapes into the WGC system, which silently
+            // detaches the FrameArrived handler and stops all frame delivery permanently.
+            // Catch everything, log it, and keep the loop alive.
+            try
+            {
+                OnFrameArrivedCore(sender);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Log($"[ERROR] MonitorCapture 0x{MonitorKey:X}: OnFrameArrived unhandled exception: {ex.GetType().Name} hr=0x{ex.HResult:X8}: {ex.Message}");
+            }
+        }
+
+        private void OnFrameArrivedCore(Direct3D11CaptureFramePool sender)
+        {
             // Drain the frame queue to get the most recent frame, discarding any stale
             // intermediates. TryGetNextFrame() returns null immediately when the queue is
             // empty, so this is at most bufferCount extra COM calls — zero GPU cost.
@@ -278,6 +293,7 @@ namespace UIXtend.Core.Services
             if (frame.ContentSize.Width != _captureSize.Width ||
                 frame.ContentSize.Height != _captureSize.Height)
             {
+                AppLogger.Log($"MonitorCapture 0x{MonitorKey:X}: size changed {_captureSize.Width}x{_captureSize.Height} -> {frame.ContentSize.Width}x{frame.ContentSize.Height}, recreating pool");
                 _captureSize = frame.ContentSize;
                 sender.Recreate(
                     _d3dDevice,
