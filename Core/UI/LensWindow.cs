@@ -406,8 +406,9 @@ namespace UIXtend.Core.UI
                 IsHitTestVisible    = false,
                 Cursor              = InputSystemCursorShape.Cross
             };
-            _contentSurface.PointerPressed  += OnContentPointerPressed;
-            _contentSurface.PointerReleased += OnContentPointerReleased;
+            _contentSurface.PointerPressed      += OnContentPointerPressed;
+            _contentSurface.PointerReleased     += OnContentPointerReleased;
+            _contentSurface.PointerWheelChanged += OnContentPointerWheelChanged;
 
             var chrome = new Grid { Visibility = Visibility.Visible };
             chrome.Children.Add(tintOverlay);
@@ -984,6 +985,48 @@ namespace UIXtend.Core.UI
 
             // MAKELPARAM: low word = X, high word = Y (matches Win32 macro exactly).
             nint lParamVal = (nint)(uint)((ushort)pt.X | ((uint)(ushort)pt.Y << 16));
+
+            PInvoke.PostMessage(target, msg, new WPARAM(wParam), new LPARAM(lParamVal));
+        }
+
+        private void OnContentPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_inputForwardingEnabled || _closed) return;
+
+            var point = e.GetCurrentPoint(null);
+            var props = point.Properties;
+            var src   = RemapToSource(point.Position);
+
+            // Pass modifier key state so Ctrl+scroll (zoom) works correctly in apps
+            // that inspect the low word of wParam (fwKeys).
+            var mods = e.KeyModifiers;
+            ushort fwKeys = 0;
+            if (mods.HasFlag(Windows.System.VirtualKeyModifiers.Control)) fwKeys |= 0x0008; // MK_CONTROL
+            if (mods.HasFlag(Windows.System.VirtualKeyModifiers.Shift))   fwKeys |= 0x0004; // MK_SHIFT
+
+            // WM_MOUSEWHEEL  = 0x020A  (vertical)
+            // WM_MOUSEHWHEEL = 0x020E  (horizontal, e.g. tilting the scroll wheel)
+            uint msg   = props.IsHorizontalMouseWheel ? 0x020Eu : 0x020Au;
+            int  delta = props.MouseWheelDelta;
+
+            // wParam: high word = signed zDelta, low word = fwKeys.
+            // Casting delta to ushort preserves the two's-complement bit pattern so
+            // the receiver reads the correct signed value via GET_WHEEL_DELTA_WPARAM.
+            nuint wParam = (nuint)(uint)((uint)fwKeys | ((uint)(ushort)delta << 16));
+
+            PostMouseWheel(src.X, src.Y, msg, wParam);
+            e.Handled = true;
+        }
+
+        private static void PostMouseWheel(int globalX, int globalY, uint msg, nuint wParam)
+        {
+            var pt     = new System.Drawing.Point(globalX, globalY);
+            var target = PInvoke.WindowFromPoint(pt);
+            if (target == default) return;
+
+            // WM_MOUSEWHEEL / WM_MOUSEHWHEEL lParam carries *screen* coordinates
+            // (unlike button messages that use client coords).  No ScreenToClient needed.
+            nint lParamVal = (nint)(uint)((ushort)globalX | ((uint)(ushort)globalY << 16));
 
             PInvoke.PostMessage(target, msg, new WPARAM(wParam), new LPARAM(lParamVal));
         }
