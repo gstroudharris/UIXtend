@@ -299,7 +299,7 @@ namespace UIXtend.Core.UI
             };
             panel.Children.Add(new TextBlock
             {
-                Text       = "UIX",
+                Text       = "UI",
                 FontFamily = new FontFamily("Segoe UI Variable Display"),
                 FontSize   = 22,
                 FontWeight = FontWeights.Bold,
@@ -307,10 +307,11 @@ namespace UIXtend.Core.UI
             });
             panel.Children.Add(new TextBlock
             {
-                Text       = "tend",
+                Text       = "Xtend",
                 FontFamily = new FontFamily("Segoe UI Variable Display"),
                 FontSize   = 22,
-                FontWeight = FontWeights.Normal,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255)),
             });
             return panel;
         }
