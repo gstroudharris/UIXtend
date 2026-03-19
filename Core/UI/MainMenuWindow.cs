@@ -305,11 +305,22 @@ namespace UIXtend.Core.UI
             };
             panel.Children.Add(new TextBlock
             {
-                Text       = "UI",
+                Text       = "U",
                 FontFamily = new FontFamily("Segoe UI Variable Display"),
                 FontSize   = 22,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(s_accent),
+            });
+            // Negative right margin pulls "X" into "I" so their strokes
+            // touch and the negative space reads as an arrow (→).
+            panel.Children.Add(new TextBlock
+            {
+                Text       = "I",
+                FontFamily = new FontFamily("Segoe UI Variable Display"),
+                FontSize   = 22,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(s_accent),
+                Margin     = new Thickness(0, 0, -2, 0),
             });
             panel.Children.Add(new TextBlock
             {

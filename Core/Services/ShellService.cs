@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using UIXtend.Core.Interfaces;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -24,6 +25,19 @@ namespace UIXtend.Core.Services
         {
             CreateMessageWindow();
             ShowTrayIcon();
+            if (IsFirstRun())
+                ShowBalloonTip();
+        }
+
+        private static bool IsFirstRun()
+        {
+            const string keyPath = @"Software\UIXtend";
+            const string valueName = "ShownTrayTip";
+            using var key = Registry.CurrentUser.OpenSubKey(keyPath);
+            if (key?.GetValue(valueName) != null) return false;
+            using var writeKey = Registry.CurrentUser.CreateSubKey(keyPath);
+            writeKey.SetValue(valueName, 1);
+            return true;
         }
 
         private unsafe void CreateMessageWindow()
@@ -147,6 +161,37 @@ namespace UIXtend.Core.Services
             }
 
             PInvoke.Shell_NotifyIcon(NOTIFY_ICON_MESSAGE.NIM_ADD, in nid);
+        }
+
+        private unsafe void ShowBalloonTip()
+        {
+            const string title = "UIXtend is running in your tray!";
+            const string body  = "Double-click the tray icon anytime to open the menu.";
+
+            var nid = new NOTIFYICONDATAW
+            {
+                cbSize      = (uint)Marshal.SizeOf<NOTIFYICONDATAW>(),
+                hWnd        = _messageWindowHandle,
+                uID         = 1,
+                uFlags      = NOTIFY_ICON_DATA_FLAGS.NIF_INFO,
+                dwInfoFlags = NOTIFY_ICON_INFOTIP_FLAGS.NIIF_INFO
+                            | NOTIFY_ICON_INFOTIP_FLAGS.NIIF_RESPECT_QUIET_TIME,
+            };
+            nid.Anonymous.uTimeout = 5000;
+
+            fixed (char* pTitle = title)
+            fixed (char* pBody  = body)
+            {
+                char* dest = (char*)&nid.szInfoTitle;
+                for (int i = 0; i < title.Length && i < 63; i++) dest[i] = pTitle[i];
+                dest[title.Length] = '\0';
+
+                dest = (char*)&nid.szInfo;
+                for (int i = 0; i < body.Length && i < 255; i++) dest[i] = pBody[i];
+                dest[body.Length] = '\0';
+            }
+
+            PInvoke.Shell_NotifyIcon(NOTIFY_ICON_MESSAGE.NIM_MODIFY, in nid);
         }
 
         public unsafe void HideTrayIcon()
