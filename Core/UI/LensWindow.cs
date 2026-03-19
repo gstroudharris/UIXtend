@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Media;
 using UIXtend.Core;
 using UIXtend.Core.Interfaces;
@@ -209,7 +210,8 @@ namespace UIXtend.Core.UI
                 Foreground        = new SolidColorBrush(fg),
                 VerticalAlignment = VerticalAlignment.Center,
                 FontFamily        = new FontFamily("Segoe UI Variable"),
-                FontSize          = 13,
+                FontWeight        = FontWeights.SemiBold,
+                FontSize          = 14,
                 Margin            = new Thickness(10, 0, 0, 0)
             };
 
@@ -221,7 +223,7 @@ namespace UIXtend.Core.UI
                 HorizontalAlignment        = HorizontalAlignment.Right,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment   = VerticalAlignment.Center,
-                FontSize                   = 11,
+                FontSize                   = 12,
                 VerticalAlignment          = VerticalAlignment.Stretch
             };
             SolidColorBrush Trans()   => new(Windows.UI.Color.FromArgb(0,   0, 0, 0));

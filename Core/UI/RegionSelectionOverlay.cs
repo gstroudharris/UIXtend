@@ -89,22 +89,19 @@ namespace UIXtend.Core.UI
             BeginFadeIn();
         }
 
-        public void FadeOutAndClose(Action onCompleted)
+        public void FadeOutAndClose()
         {
+            // Runs independently in the background — callers are not blocked by this.
             var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
             var anim = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
             {
                 To = 0.0,
-                Duration = new Duration(TimeSpan.FromSeconds(0.5))
+                Duration = new Duration(TimeSpan.FromSeconds(0.2))
             };
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(anim, _canvas);
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(anim, "Opacity");
             sb.Children.Add(anim);
-            sb.Completed += (s, e) =>
-            {
-                onCompleted?.Invoke(); // resolve the TCS before Close() fires the Closed event
-                this.Close();
-            };
+            sb.Completed += (s, e) => this.Close();
             sb.Begin();
         }
 

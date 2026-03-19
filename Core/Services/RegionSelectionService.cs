@@ -67,15 +67,15 @@ namespace UIXtend.Core.Services
             _escTimer?.Stop();
             _escTimer = null;
 
+            // Resolve immediately so callers don't wait for the fade animation.
+            // The overlay fades out and closes in the background independently.
+            _tcs?.TrySetResult(rect);
+
             if (_activeOverlay != null)
             {
                 var overlay = _activeOverlay;
                 _activeOverlay = null;
-                overlay.FadeOutAndClose(() => _tcs?.TrySetResult(rect));
-            }
-            else
-            {
-                _tcs?.TrySetResult(rect);
+                overlay.FadeOutAndClose();
             }
         }
 
