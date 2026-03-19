@@ -19,6 +19,7 @@ using Windows.Graphics;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Dwm;
+using Windows.Win32.UI.Input.KeyboardAndMouse;
 using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace UIXtend.Core.UI
@@ -676,6 +677,100 @@ namespace UIXtend.Core.UI
             _capture.Dispose();
             LensClosed?.Invoke(_capture.Id);
             AppLogger.Log($"  Lens {_capture.Id} closed");
+        }
+
+        // ═════════════════════════════════════════════════════════════════════════
+        //  Input forwarding — coordinate remapping + SendInput injection
+        // ═════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Converts a pointer position inside this LensWindow to the corresponding
+        /// global screen coordinate in the original captured region.
+        /// </summary>
+        /// <param name="logicalPos">
+        /// Position in logical (DIP) coordinates relative to the LensWindow root,
+        /// as returned by <c>PointerRoutedEventArgs.GetCurrentPoint(null).Position</c>
+        /// minus the window's own screen origin — or more simply, the position relative
+        /// to any full-window element passed to <c>GetCurrentPoint</c>.
+        /// </param>
+        /// <returns>Global physical screen coordinates of the equivalent point in the source.</returns>
+        private PointInt32 RemapToSource(Windows.Foundation.Point logicalPos)
+        {
+            // 1. Logical → physical pixels within the LensWindow.
+            //    _dpiScale = GetDpiForWindow / 96 = XamlRoot.RasterizationScale.
+            float physX = (float)logicalPos.X * _dpiScale;
+            float physY = (float)logicalPos.Y * _dpiScale;
+
+            // 2. Normalise to [0..1] across the window's current physical size.
+            //    AppWindow.Size is always in physical pixels, so this handles the case
+            //    where the user has resized the LensWindow (zoom in / zoom out).
+            float normX = physX / AppWindow.Size.Width;
+            float normY = physY / AppWindow.Size.Height;
+
+            // 3. Map into the captured crop rect, then add the capture's global origin.
+            //    _capture.Region.X/Y  = global screen origin of the captured region (physical px).
+            //    _capture.CropRect.Width/Height = physical size of that region on its monitor.
+            //
+            //    The monitor offset cancels:
+            //      globalX = (Region.X - CropRect.X) + CropRect.X + normX * CropRect.Width
+            //              =  Region.X               + normX * CropRect.Width
+            int globalX = (int)(_capture.Region.X + normX * _capture.CropRect.Width);
+            int globalY = (int)(_capture.Region.Y + normY * _capture.CropRect.Height);
+
+            return new PointInt32(globalX, globalY);
+        }
+
+        /// <summary>
+        /// Synthesises a mouse event at the given global screen position using SendInput.
+        /// Moves the real cursor to <paramref name="globalX"/>, <paramref name="globalY"/>
+        /// and then fires <paramref name="buttonFlags"/> (e.g. MOUSEEVENTF_LEFTDOWN).
+        /// Pass <see cref="MOUSE_EVENT_FLAGS"/> with no button bits to perform a move only.
+        /// </summary>
+        /// <remarks>
+        /// MOUSEEVENTF_ABSOLUTE coordinates are normalised to [0..65535] across the full
+        /// virtual desktop (MOUSEEVENTF_VIRTUALDESK), so negative and large coordinates on
+        /// secondary monitors are handled correctly.
+        ///
+        /// SendInput cannot inject into windows at a higher privilege level (UIPI); clicks
+        /// targeting elevated processes (e.g. Task Manager) will be silently dropped by the OS.
+        /// </remarks>
+        private static unsafe void InjectMouseEvent(
+            int globalX, int globalY,
+            MOUSE_EVENT_FLAGS buttonFlags,
+            int mouseData = 0)
+        {
+            // Map global physical coords to the [0..65535] space that MOUSEEVENTF_ABSOLUTE
+            // uses.  MOUSEEVENTF_VIRTUALDESK extends the space from the primary monitor to
+            // the full virtual desktop — essential for multi-monitor and negative coordinates.
+            int vLeft   = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_XVIRTUALSCREEN);
+            int vTop    = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_YVIRTUALSCREEN);
+            int vWidth  = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXVIRTUALSCREEN);
+            int vHeight = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYVIRTUALSCREEN);
+
+            int absX = (int)((globalX - vLeft) * 65535.0 / (vWidth  - 1));
+            int absY = (int)((globalY - vTop)  * 65535.0 / (vHeight - 1));
+
+            var input = new INPUT
+            {
+                type = INPUT_TYPE.INPUT_MOUSE,
+                Anonymous = new INPUT._Anonymous_e__Union
+                {
+                    mi = new MOUSEINPUT
+                    {
+                        dx        = absX,
+                        dy        = absY,
+                        mouseData = (uint)mouseData,
+                        dwFlags   = MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE
+                                  | MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE
+                                  | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK
+                                  | buttonFlags,
+                        time        = 0,
+                        dwExtraInfo = UIntPtr.Zero,
+                    }
+                }
+            };
+
+            PInvoke.SendInput(1, &input, sizeof(INPUT));
         }
 
         // ═════════════════════════════════════════════════════════════════════════
