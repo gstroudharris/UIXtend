@@ -38,9 +38,21 @@ Write-Host "Removing non-x64 dependencies ..." -ForegroundColor Cyan
     if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
 
-Write-Host "Copying installer scripts ..." -ForegroundColor Cyan
-Copy-Item "$ProjectDir\Installer\Install.bat"      $TestDir -Force
-Copy-Item "$ProjectDir\Installer\InstallHelper.ps1" $TestDir -Force
+Write-Host "Removing developer-only files ..." -ForegroundColor Cyan
+# Remove all PS1 files and the Add-AppDevPackage resources folder from the
+# root of the _Test dir — the SDK generates several we don't want to ship.
+if (Test-Path $TestDir) { Get-ChildItem -Path $TestDir -Filter "*.ps1" | Remove-Item -Force }
+$devResources = Join-Path $TestDir "Add-AppDevPackage.resources"
+if (Test-Path $devResources) { Remove-Item $devResources -Recurse -Force }
+
+Write-Host "Staging _internal folder ..." -ForegroundColor Cyan
+$InternalDir = Join-Path $TestDir "_internal"
+New-Item -ItemType Directory -Path $InternalDir -Force | Out-Null
+Move-Item "$TestDir\UIXtend.cer"                    $InternalDir -Force
+Move-Item "$TestDir\UIXtend_${Version}_x64.msix"    $InternalDir -Force
+Move-Item "$TestDir\Dependencies"                    $InternalDir -Force
+Copy-Item "$ProjectDir\Installer\InstallHelper.ps1"  $InternalDir -Force
+Copy-Item "$ProjectDir\Installer\Install.bat"        $TestDir     -Force
 
 Write-Host "Renaming output folder (removing _Test) ..." -ForegroundColor Cyan
 if (Test-Path $CleanDir) { Remove-Item $CleanDir -Recurse -Force }
