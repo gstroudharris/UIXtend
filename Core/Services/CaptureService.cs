@@ -202,6 +202,25 @@ namespace UIXtend.Core.Services
         private long _maxDispatchTicks;
         private long _lastDispatchStatsTicks = Stopwatch.GetTimestamp();
         private int _totalDrainCount; // stale frames discarded by queue drain
+
+        // Exclusive lock guarding all Win2D/D2D device operations on the shared CanvasDevice.
+        //
+        // Win2D's CanvasBitmap.CreateFromDirect3D11Surface calls ID2D1DeviceContext::
+        // CreateBitmapFromDxgiSurface on a shared ID2D1DeviceContext owned by the CanvasDevice.
+        // ID2D1DeviceContext is NOT thread-safe; concurrent calls from multiple WGC threads
+        // corrupt its internal state, leaving one thread permanently blocked on a GPU sync
+        // event that never fires ("black screen" bug confirmed by diagnostic logs).
+        //
+        // new CanvasSwapChain likewise allocates D3D resources on the same device.
+        //
+        // Solution: serialize all three operations (CreateFromDirect3D11Surface, new
+        // CanvasSwapChain, ResizeBuffers) under a single exclusive lock.  Each call takes
+        // ≤ 1 ms, so even with two monitors at 60 fps the serialization overhead is < 0.1 ms/s.
+        //
+        // Present() is intentionally excluded — it routes through the DWM compositor and must
+        // NOT hold this lock; doing so causes a deadlock with the DWM ACK path.
+        internal static readonly object DeviceCreationLock = new();
+
         public nint MonitorKey { get; }
         public int ViewCount { get { lock (_viewLock) return _views.Count; } }
 
@@ -309,16 +328,23 @@ namespace UIXtend.Core.Services
 
             var dispatchStart = Stopwatch.GetTimestamp();
 
-            // Wrap the WGC surface as a CanvasBitmap — no GPU copy, zero overhead.
-            // The bitmap is only valid while 'frame' is alive (end of this using block).
-            // All views must process synchronously: GPU draw+present is fast enough.
-            using var bitmap = CanvasBitmap.CreateFromDirect3D11Surface(_device, frame.Surface);
+            // Serialize all Win2D device operations under DeviceCreationLock.
+            // ID2D1DeviceContext (shared per CanvasDevice) is not thread-safe; concurrent
+            // CreateFromDirect3D11Surface calls from two WGC threads corrupt its state and
+            // cause a permanent GPU-sync hang.  Present() runs outside this lock (see above).
+            CanvasBitmap bitmap;
+            lock (DeviceCreationLock)
+            {
+                bitmap = CanvasBitmap.CreateFromDirect3D11Surface(_device, frame.Surface);
+            }
 
             RegionView[] snapshot;
             lock (_viewLock) snapshot = _views.ToArray();
 
-            foreach (var view in snapshot)
-                view.DeliverFrame(bitmap);
+            // DeliverFrame (and the draw/present inside it) run outside the lock.
+            using (bitmap)
+                foreach (var view in snapshot)
+                    view.DeliverFrame(bitmap);
 
             // Accumulate dispatch timing (includes all view draw+present work).
             var dispatchTicks = Stopwatch.GetTimestamp() - dispatchStart;

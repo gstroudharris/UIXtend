@@ -33,8 +33,13 @@ namespace UIXtend
             var windowService = ServiceHost.ServiceProvider?.GetService(typeof(IWindowService)) as IWindowService;
             windowService?.Shutdown();
 
-            // Stop remaining services (WGC sessions, GPU device, capture, etc.)
-            await ServiceHost.StopAsync();
+            // Stop remaining services (WGC sessions → CanvasDevice, in reverse init order).
+            // Guard with a hard timeout: if a WGC thread is permanently stuck inside a D2D
+            // device call, CanvasDevice.Dispose() can hang.  Environment.Exit(0) terminates
+            // the process regardless, so we bound the wait to 3 s and exit no matter what.
+            var stopTask = ServiceHost.StopAsync();
+            if (await Task.WhenAny(stopTask, Task.Delay(3_000)) != stopTask)
+                AppLogger.Log("[shutdown] StopAsync timed out after 3 s — forcing exit");
 
             AppLogger.Dispose();
             Environment.Exit(0);

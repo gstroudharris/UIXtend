@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -92,7 +93,13 @@ namespace UIXtend.Core
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            foreach (var service in _services)
+            // Dispose in REVERSE init order so dependents are torn down before dependencies:
+            //   RegionSelectionService → ShellService → LensService
+            //   → CaptureService (WGC sessions)
+            //   → RenderService (CanvasDevice) ← must come AFTER CaptureService so the
+            //     CanvasDevice is not disposed while a WGC thread is still using it
+            //   → WindowService
+            foreach (var service in _services.Reverse())
             {
                 AppLogger.Log($"Disposing {service.GetType().Name}");
                 service.Dispose();

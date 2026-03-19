@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas;
+using UIXtend.Core.Services;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -468,7 +469,7 @@ namespace UIXtend.Core.UI
         //  Swap chain setup
         // ═════════════════════════════════════════════════════════════════════════
 
-        private void OnPanelLoaded(object sender, RoutedEventArgs e)
+        private async void OnPanelLoaded(object sender, RoutedEventArgs e)
         {
             if (_closed || _panel == null) return;
 
@@ -478,24 +479,67 @@ namespace UIXtend.Core.UI
 
             AppLogger.Log($"  OnPanelLoaded id={_capture.Id}: panel={_panel.ActualWidth}x{_panel.ActualHeight} dips, scale={scale}, swapChain={physW}x{physH} phys — {_openStopwatch.ElapsedMilliseconds} ms since ctor");
 
-            // Create and assign the swap chain OUTSIDE any lock.
-            // CanvasSwapChain creation and _panel.SwapChain assignment both touch the DXGI/DWM
-            // compositor, which requires the UI thread message queue to be live.  Holding
-            // _swapChainLock here would deadlock if the WGC thread is simultaneously inside the
-            // lock calling Present(0) — Present flushes through DWM, which pumps the UI queue.
-            CanvasSwapChain swapChain;
-            try
+            // CanvasSwapChain is created on a background thread so the UI message pump
+            // stays live while we hold DeviceCreationLock's write side.  If we blocked the
+            // UI thread here, Present() on WGC threads needs a DWM/compositor ACK via the
+            // UI STA — but the STA isn't pumping — causing a deadlock → freeze → crash.
+            //
+            // The write lock excludes concurrent CreateFromDirect3D11Surface calls on WGC
+            // threads (the specific operation that AVs when racing with new CanvasSwapChain).
+            // _panel.SwapChain assignment runs back on the UI thread (XAML requirement).
+            CanvasSwapChain? swapChain = null;
+            AppLogger.Log($"  LensWindow {_capture.Id}: queuing Task.Run on ui-thread={Environment.CurrentManagedThreadId}");
+            await System.Threading.Tasks.Task.Run(() =>
             {
-                swapChain = new CanvasSwapChain(_device, physW, physH, 96f);
-                _panel.SwapChain = swapChain;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.Log($"  LensWindow {_capture.Id}: OnPanelLoaded swap chain EXCEPTION hr=0x{ex.HResult:X8}: {ex.GetType().Name}: {ex.Message}");
-                return;
-            }
+                AppLogger.Log($"  LensWindow {_capture.Id}: Task.Run started on thread={Environment.CurrentManagedThreadId}");
 
-            // Only the reference assignment needs the lock — this is a pointer write, sub-microsecond.
+                // Acquire DeviceCreationLock exclusively so no WGC thread is inside
+                // CreateFromDirect3D11Surface while we allocate the swap chain.
+                // Both operations share the same ID2D1DeviceContext and are not thread-safe
+                // when called concurrently on the same CanvasDevice.
+                //
+                // Use Monitor.TryEnter with a timeout: if a WGC thread is stuck inside
+                // CreateFromDirect3D11Surface (diagnosed in session logs), we bail cleanly
+                // rather than hanging. The window stays black, but the app keeps running.
+                const int LockTimeoutMs = 5_000;
+                var lockSw = Stopwatch.StartNew();
+                bool lockAcquired = System.Threading.Monitor.TryEnter(
+                    MonitorCapture.DeviceCreationLock, LockTimeoutMs);
+                lockSw.Stop();
+
+                if (!lockAcquired)
+                {
+                    AppLogger.Log($"  LensWindow {_capture.Id}: *** DeviceCreationLock TIMED OUT after {lockSw.ElapsedMilliseconds}ms — WGC thread may be stuck ***");
+                    return; // swapChain stays null — window stays black, no hang
+                }
+
+                if (lockSw.ElapsedMilliseconds > 2)
+                    AppLogger.Log($"  LensWindow {_capture.Id}: device lock waited {lockSw.ElapsedMilliseconds}ms");
+
+                try
+                {
+                    AppLogger.Log($"  LensWindow {_capture.Id}: calling new CanvasSwapChain {physW}x{physH}");
+                    swapChain = new CanvasSwapChain(_device, physW, physH, 96f);
+                    AppLogger.Log($"  LensWindow {_capture.Id}: CanvasSwapChain created");
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.Log($"  LensWindow {_capture.Id}: OnPanelLoaded swap chain EXCEPTION hr=0x{ex.HResult:X8}: {ex.GetType().Name}: {ex.Message}");
+                }
+                finally
+                {
+                    System.Threading.Monitor.Exit(MonitorCapture.DeviceCreationLock);
+                }
+            });
+
+            // Resumed on UI thread (WinUI 3 DispatcherQueue SynchronizationContext).
+            AppLogger.Log($"  LensWindow {_capture.Id}: Task.Run done — swapChain={swapChain != null}, closed={_closed}, thread={Environment.CurrentManagedThreadId}");
+            if (swapChain == null || _closed) { swapChain?.Dispose(); return; }
+
+            AppLogger.Log($"  LensWindow {_capture.Id}: assigning panel.SwapChain");
+            _panel.SwapChain = swapChain;
+            AppLogger.Log($"  LensWindow {_capture.Id}: panel.SwapChain assigned");
+
             lock (_swapChainLock)
             {
                 if (_closed) { swapChain.Dispose(); return; }
@@ -547,27 +591,39 @@ namespace UIXtend.Core.UI
                     }
                 }
 
-                if (pendingW > 0 &&
-                    (Math.Abs(swapChain.Size.Width  - pendingW) > 0.5f ||
-                     Math.Abs(swapChain.Size.Height - pendingH) > 0.5f))
-                {
-                    AppLogger.Log($"  LensWindow {_capture.Id}: ResizeBuffers {pendingW}x{pendingH}");
-                    swapChain.ResizeBuffers(pendingW, pendingH, 96f);
-                }
-
                 if (!_firstFrameLogged)
                 {
                     _firstFrameLogged = true;
                     AppLogger.Log($"  First frame id={_capture.Id}: {_openStopwatch.ElapsedMilliseconds} ms since ctor, thread={Environment.CurrentManagedThreadId}");
                 }
 
-                var size = swapChain.Size;
-                using var ds = swapChain.CreateDrawingSession(Colors.Black);
-                ds.DrawImage(
-                    fullMonitorBitmap,
-                    new Rect(0, 0, size.Width, size.Height),
-                    _capture.CropRect);
-                ds.Dispose();        // flush draw commands before Present
+                // All D2D device operations — ResizeBuffers (releases D2D back-buffer
+                // references), CreateDrawingSession (BeginDraw), DrawImage, and EndDraw
+                // (ds.Dispose at end of using scope) — must be serialized under
+                // DeviceCreationLock.  ID2D1DeviceContext is not thread-safe; concurrent
+                // calls from two WGC threads on the same CanvasDevice cause permanent hangs
+                // inside the GPU-sync path.  Present() is excluded: it routes through the
+                // DWM compositor and must NOT hold this lock.
+                lock (MonitorCapture.DeviceCreationLock)
+                {
+                    if (pendingW > 0 &&
+                        (Math.Abs(swapChain.Size.Width  - pendingW) > 0.5f ||
+                         Math.Abs(swapChain.Size.Height - pendingH) > 0.5f))
+                    {
+                        AppLogger.Log($"  LensWindow {_capture.Id}: ResizeBuffers {pendingW}x{pendingH}");
+                        swapChain.ResizeBuffers(pendingW, pendingH, 96f);
+                    }
+
+                    var size = swapChain.Size;
+                    using var ds = swapChain.CreateDrawingSession(Colors.Black);
+                    ds.DrawImage(
+                        fullMonitorBitmap,
+                        new Rect(0, 0, size.Width, size.Height),
+                        _capture.CropRect);
+                    // ds.Dispose() (EndDraw) fires here at end of using scope,
+                    // still inside the lock — before Present and before lock release.
+                }
+
                 swapChain.Present(0); // outside lock — compositor-facing, must not hold lock
             }
             catch (Exception ex) when (IsDeviceLostHResult(ex.HResult)) { }
