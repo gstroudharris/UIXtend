@@ -31,9 +31,10 @@ namespace UIXtend.Core
 
         public static void Log(string message)
         {
+            if (_writer == null) return;   // logging not enabled — skip everything
             var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
             lock (_lock)
-                _writer?.WriteLine(line);
+                _writer.WriteLine(line);
             System.Diagnostics.Debug.WriteLine($"[UIXtend] {line}");
         }
 

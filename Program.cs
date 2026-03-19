@@ -10,7 +10,8 @@ namespace UIXtend
         [STAThread]
         public static void Main(string[] args)
         {
-            AppLogger.Initialize();
+            if (Array.Exists(args, a => a.Equals("--loggingEnabled", StringComparison.OrdinalIgnoreCase)))
+                AppLogger.Initialize();
 
             try
             {
