@@ -47,6 +47,11 @@ namespace UIXtend.Core.UI
         // ── Input forwarding state ────────────────────────────────────────────────
         private bool _inputForwardingEnabled;
 
+        // ── Live capture state ────────────────────────────────────────────────────
+        private bool _captureLive = true;
+        private CanvasRenderTarget? _frozenFrame;   // GPU-side snapshot; owned by LensWindow
+        private bool _needFrozenFrame;              // set on UI thread, consumed on WGC thread
+
         private nint _hwndPtr;
         private float _dpiScale = 1f;
 
@@ -310,14 +315,72 @@ namespace UIXtend.Core.UI
                 AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF");
             };
 
+            // ── Live-capture toggle button ────────────────────────────────────────
+            var liveBtnIconUri = new Uri(
+                System.IO.Path.Combine(
+                    AppContext.BaseDirectory,
+                    "assets",
+                    "ic_fluent_play_circle_24_filled.png"));
+            var liveToggleBtn = new ToggleButton
+            {
+                Content = new BitmapIcon
+                {
+                    UriSource        = liveBtnIconUri,
+                    ShowAsMonochrome = true,
+                    Width            = 16,
+                    Height           = 16
+                },
+                IsChecked                  = true,   // live by default
+                Width                      = CloseButtonLogicalW,
+                Padding                    = new Thickness(0),
+                HorizontalAlignment        = HorizontalAlignment.Right,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment   = VerticalAlignment.Center,
+                VerticalAlignment          = VerticalAlignment.Stretch
+            };
+            ToolTipService.SetToolTip(liveToggleBtn, "Toggle live capture");
+            liveToggleBtn.Resources["ToggleButtonBackground"]                        = Trans();
+            liveToggleBtn.Resources["ToggleButtonBackgroundPointerOver"]             = Hover();
+            liveToggleBtn.Resources["ToggleButtonBackgroundPressed"]                 = Press();
+            liveToggleBtn.Resources["ToggleButtonBackgroundDisabled"]                = Trans();
+            liveToggleBtn.Resources["ToggleButtonForeground"]                        = FgBrush();
+            liveToggleBtn.Resources["ToggleButtonForegroundPointerOver"]             = FgBrush();
+            liveToggleBtn.Resources["ToggleButtonForegroundPressed"]                 = FgBrush();
+            liveToggleBtn.Resources["ToggleButtonBorderBrush"]                       = Trans();
+            liveToggleBtn.Resources["ToggleButtonBorderBrushPointerOver"]            = Trans();
+            liveToggleBtn.Resources["ToggleButtonBorderBrushPressed"]                = Trans();
+            liveToggleBtn.Resources["ToggleButtonBackgroundChecked"]                 = CheckedBg();
+            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"]      = CheckedBgHov();
+            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]          = CheckedBg();
+            liveToggleBtn.Resources["ToggleButtonForegroundChecked"]                 = CheckedFg();
+            liveToggleBtn.Resources["ToggleButtonForegroundCheckedPointerOver"]      = CheckedFg();
+            liveToggleBtn.Resources["ToggleButtonForegroundCheckedPressed"]          = CheckedFg();
+            liveToggleBtn.Resources["ToggleButtonBorderBrushChecked"]                = Trans();
+            liveToggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]     = Trans();
+            liveToggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]         = Trans();
+            liveToggleBtn.Checked   += (s, e) =>
+            {
+                _captureLive = true;
+                AppLogger.Log($"  LensWindow {_capture.Id}: live capture ON");
+            };
+            liveToggleBtn.Unchecked += (s, e) =>
+            {
+                _needFrozenFrame = true;  // snapshot the very next arriving frame
+                _captureLive = false;
+                AppLogger.Log($"  LensWindow {_capture.Id}: live capture OFF (frozen)");
+            };
+
             var topBarContent = new Grid();
             topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(label,     0);
-            Grid.SetColumn(toggleBtn, 1);
-            Grid.SetColumn(closeBtn,  2);
+            topBarContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(label,         0);
+            Grid.SetColumn(liveToggleBtn, 1);
+            Grid.SetColumn(toggleBtn,     2);
+            Grid.SetColumn(closeBtn,      3);
             topBarContent.Children.Add(label);
+            topBarContent.Children.Add(liveToggleBtn);
             topBarContent.Children.Add(toggleBtn);
             topBarContent.Children.Add(closeBtn);
 
@@ -674,14 +737,53 @@ namespace UIXtend.Core.UI
 
         private void OnFrameArrived(object? sender, CanvasBitmap fullMonitorBitmap)
         {
+            bool live        = _captureLive;
+            bool needCapture = _needFrozenFrame;
+
+            // ── Frozen + stable: only re-render if a resize is waiting ────────────
+            // The WGC thread keeps delivering frames even when frozen; we use those
+            // calls purely as a trigger to apply pending ResizeBuffers + redraw the
+            // snapshot at the new size.  No GPU work is done if nothing changed.
+            if (!live && !needCapture)
+            {
+                CanvasSwapChain? sc;
+                float pw = 0, ph = 0;
+                lock (_swapChainLock)
+                {
+                    if (_swapChain == null || _closed || _pendingSwapW == 0) return;
+                    sc = _swapChain;
+                    pw = _pendingSwapW; ph = _pendingSwapH;
+                    _pendingSwapW = 0;  _pendingSwapH = 0;
+                }
+                if (_frozenFrame == null) return;
+
+                try
+                {
+                    lock (MonitorCapture.DeviceCreationLock)
+                    {
+                        if (Math.Abs(sc.Size.Width - pw) > 0.5f || Math.Abs(sc.Size.Height - ph) > 0.5f)
+                            sc.ResizeBuffers(pw, ph, 96f);
+                        var sz = sc.Size;
+                        using var ds = sc.CreateDrawingSession(Colors.Black);
+                        ds.DrawImage(_frozenFrame,
+                            new Rect(0, 0, sz.Width, sz.Height),
+                            new Rect(0, 0, _frozenFrame.Size.Width, _frozenFrame.Size.Height));
+                    }
+                    sc.Present(0);
+                }
+                catch (Exception ex) when (IsDeviceLostHResult(ex.HResult)) { }
+                catch (Exception ex)
+                {
+                    AppLogger.Log($"  LensWindow {_capture.Id}: OnFrameArrived (frozen resize) EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                }
+                return;
+            }
+
+            // ── Live or first-freeze snapshot ─────────────────────────────────────
             var drawStart = Stopwatch.GetTimestamp();
 
             try
             {
-                // Grab the swap chain reference and any pending resize under the lock.
-                // GPU operations (ResizeBuffers, CreateDrawingSession, Present) happen outside
-                // the lock — Present touches the DWM compositor, which can deadlock if the UI
-                // thread is simultaneously blocked in lock(_swapChainLock) during OnPanelLoaded.
                 CanvasSwapChain? swapChain;
                 float pendingW = 0, pendingH = 0;
                 lock (_swapChainLock)
@@ -701,13 +803,9 @@ namespace UIXtend.Core.UI
                     AppLogger.Log($"  First frame id={_capture.Id}: {_openStopwatch.ElapsedMilliseconds} ms since ctor, thread={Environment.CurrentManagedThreadId}");
                 }
 
-                // All D2D device operations — ResizeBuffers (releases D2D back-buffer
-                // references), CreateDrawingSession (BeginDraw), DrawImage, and EndDraw
-                // (ds.Dispose at end of using scope) — must be serialized under
-                // DeviceCreationLock.  ID2D1DeviceContext is not thread-safe; concurrent
-                // calls from two WGC threads on the same CanvasDevice cause permanent hangs
-                // inside the GPU-sync path.  Present() is excluded: it routes through the
-                // DWM compositor and must NOT hold this lock.
+                // All D2D device operations — ResizeBuffers, CreateDrawingSession (BeginDraw),
+                // DrawImage, EndDraw — must be serialized under DeviceCreationLock.
+                // Present() is excluded: compositor-facing, must not hold the lock.
                 lock (MonitorCapture.DeviceCreationLock)
                 {
                     if (pendingW > 0 &&
@@ -718,17 +816,40 @@ namespace UIXtend.Core.UI
                         swapChain.ResizeBuffers(pendingW, pendingH, 96f);
                     }
 
+                    // Snapshot this frame when freeze was just requested.
+                    // GPU blit into a CanvasRenderTarget we own — no CPU readback.
+                    if (needCapture)
+                    {
+                        _frozenFrame?.Dispose();
+                        var cr = _capture.CropRect;
+                        _frozenFrame = new CanvasRenderTarget(_device, (float)cr.Width, (float)cr.Height, 96f);
+                        using var fds = _frozenFrame.CreateDrawingSession();
+                        fds.DrawImage(fullMonitorBitmap,
+                            new Rect(0, 0, cr.Width, cr.Height),
+                            cr);
+                        _needFrozenFrame = false;
+                        // re-read: if the user toggled back to live before this frame, stay live
+                        live = _captureLive;
+                    }
+
                     var size = swapChain.Size;
                     using var ds = swapChain.CreateDrawingSession(Colors.Black);
-                    ds.DrawImage(
-                        fullMonitorBitmap,
-                        new Rect(0, 0, size.Width, size.Height),
-                        _capture.CropRect);
-                    // ds.Dispose() (EndDraw) fires here at end of using scope,
-                    // still inside the lock — before Present and before lock release.
+                    if (live)
+                    {
+                        ds.DrawImage(fullMonitorBitmap,
+                            new Rect(0, 0, size.Width, size.Height),
+                            _capture.CropRect);
+                    }
+                    else
+                    {
+                        // Draw the just-captured snapshot scaled to the current swap chain
+                        ds.DrawImage(_frozenFrame!,
+                            new Rect(0, 0, size.Width, size.Height),
+                            new Rect(0, 0, _frozenFrame!.Size.Width, _frozenFrame.Size.Height));
+                    }
                 }
 
-                swapChain.Present(0); // outside lock — compositor-facing, must not hold lock
+                swapChain.Present(0);
             }
             catch (Exception ex) when (IsDeviceLostHResult(ex.HResult)) { }
             catch (Exception ex)
@@ -782,6 +903,9 @@ namespace UIXtend.Core.UI
                 _swapChain?.Dispose();
                 _swapChain = null;
             }
+
+            _frozenFrame?.Dispose();
+            _frozenFrame = null;
 
             _capture.Dispose();
             LensClosed?.Invoke(_capture.Id);
