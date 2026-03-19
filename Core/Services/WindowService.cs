@@ -46,9 +46,10 @@ namespace UIXtend.Core.Services
                 // so the user can't shrink it below the content size.
                 if (_mainMenuWindow.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
                 {
-                    presenter.IsResizable = false;
-                    presenter.IsMaximizable = false;
-                    presenter.IsAlwaysOnTop = true;
+                    presenter.IsResizable    = false;
+                    presenter.IsMinimizable  = false;
+                    presenter.IsMaximizable  = false;
+                    presenter.IsAlwaysOnTop  = true;
                 }
 
                 // ── Task 4: Capture Exclusion ─────────────────────────────────────
