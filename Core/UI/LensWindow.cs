@@ -408,6 +408,7 @@ namespace UIXtend.Core.UI
             };
             _contentSurface.PointerPressed      += OnContentPointerPressed;
             _contentSurface.PointerReleased     += OnContentPointerReleased;
+            _contentSurface.PointerMoved        += OnContentPointerMoved;
             _contentSurface.PointerWheelChanged += OnContentPointerWheelChanged;
 
             var chrome = new Grid { Visibility = Visibility.Visible };
@@ -762,6 +763,12 @@ namespace UIXtend.Core.UI
             if (_closed) return;
             _closed = true;
 
+            // Stop input forwarding immediately so no queued pointer events are
+            // processed after the window has begun tearing down.
+            _inputForwardingEnabled = false;
+            if (_contentSurface != null)
+                _contentSurface.IsHitTestVisible = false;
+
             _capture.FrameArrived -= OnFrameArrived;
 
             lock (_swapChainLock)
@@ -903,7 +910,7 @@ namespace UIXtend.Core.UI
 
         private void OnContentPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed) return;
+            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
 
             var point         = e.GetCurrentPoint(null);
             var kind          = point.Properties.PointerUpdateKind;
@@ -922,7 +929,7 @@ namespace UIXtend.Core.UI
 
         private void OnContentPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed) return;
+            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
 
             var point         = e.GetCurrentPoint(null);
             var kind          = point.Properties.PointerUpdateKind;
@@ -930,10 +937,43 @@ namespace UIXtend.Core.UI
             if (msg == 0) return;
 
             var src = RemapToSource(point.Position);
+            AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
             PostMouseButton(src.X, src.Y, msg, wParam);
 
             ((UIElement)sender).ReleasePointerCapture(e.Pointer);
             e.Handled = true;
+        }
+
+        private void OnContentPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
+
+            var point = e.GetCurrentPoint(null);
+            var props = point.Properties;
+            var src   = RemapToSource(point.Position);
+
+            // Build virtual-key flags from the current button and modifier state.
+            // When no buttons are held this is 0 → pure hover (tooltips, highlights).
+            // When a button is held this carries MK_LBUTTON etc. → drag forwarding.
+            ushort fwKeys = 0;
+            if (props.IsLeftButtonPressed)   fwKeys |= 0x0001; // MK_LBUTTON
+            if (props.IsRightButtonPressed)  fwKeys |= 0x0002; // MK_RBUTTON
+            if (props.IsMiddleButtonPressed) fwKeys |= 0x0010; // MK_MBUTTON
+            if (props.IsXButton1Pressed)     fwKeys |= 0x0020; // MK_XBUTTON1
+            if (props.IsXButton2Pressed)     fwKeys |= 0x0040; // MK_XBUTTON2
+
+            var mods = e.KeyModifiers;
+            if (mods.HasFlag(Windows.System.VirtualKeyModifiers.Control)) fwKeys |= 0x0008; // MK_CONTROL
+            if (mods.HasFlag(Windows.System.VirtualKeyModifiers.Shift))   fwKeys |= 0x0004; // MK_SHIFT
+
+            // Only forward WM_MOUSEMOVE during drag (at least one button held).
+            // Pure hover (fwKeys == 0) causes rapid WM_MOUSELEAVE/WM_MOUSEMOVE flashing:
+            // the OS immediately sends WM_MOUSELEAVE to the target because the real cursor
+            // is not physically over it, which clears the hover state on every frame.
+            if (fwKeys == 0) return;
+
+            // WM_MOUSEMOVE = 0x0200. lParam = client coords, same layout as button msgs.
+            PostMouseButton(src.X, src.Y, 0x0200u, (nuint)fwKeys);
         }
 
         // Maps PointerUpdateKind → (WM_* message, wParam) for PostMessage.
@@ -991,7 +1031,7 @@ namespace UIXtend.Core.UI
 
         private void OnContentPointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed) return;
+            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
 
             var point = e.GetCurrentPoint(null);
             var props = point.Properties;
@@ -1014,6 +1054,7 @@ namespace UIXtend.Core.UI
             // the receiver reads the correct signed value via GET_WHEEL_DELTA_WPARAM.
             nuint wParam = (nuint)(uint)((uint)fwKeys | ((uint)(ushort)delta << 16));
 
+            AppLogger.Log($"  LensWindow {_capture.Id}: forward wheel delta={delta} → ({src.X},{src.Y})");
             PostMouseWheel(src.X, src.Y, msg, wParam);
             e.Handled = true;
         }
