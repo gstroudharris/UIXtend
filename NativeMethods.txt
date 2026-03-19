@@ -53,3 +53,6 @@ GetClientRect
 SendInput
 INPUT_TYPE
 MOUSE_EVENT_FLAGS
+WindowFromPoint
+ScreenToClient
+PostMessage

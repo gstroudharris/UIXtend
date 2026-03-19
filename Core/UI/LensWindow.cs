@@ -406,6 +406,8 @@ namespace UIXtend.Core.UI
                 IsHitTestVisible    = false,
                 Cursor              = InputSystemCursorShape.Cross
             };
+            _contentSurface.PointerPressed  += OnContentPointerPressed;
+            _contentSurface.PointerReleased += OnContentPointerReleased;
 
             var chrome = new Grid { Visibility = Visibility.Visible };
             chrome.Children.Add(tintOverlay);
@@ -843,27 +845,147 @@ namespace UIXtend.Core.UI
             int absX = (int)((globalX - vLeft) * 65535.0 / (vWidth  - 1));
             int absY = (int)((globalY - vTop)  * 65535.0 / (vHeight - 1));
 
-            var input = new INPUT
+            // Always send MOVE and button as two separate events in one atomic SendInput
+            // call.  Combining them into a single INPUT struct causes the OS to route the
+            // button to the window that had focus *before* the move, not the one now under
+            // the cursor — resulting in the cursor visibly jumping but the click being lost.
+            // Sending MOVE first and button second guarantees the window under the new
+            // cursor position receives the button message.
+            INPUT* events = stackalloc INPUT[2];
+
+            events[0] = new INPUT
             {
                 type = INPUT_TYPE.INPUT_MOUSE,
                 Anonymous = new INPUT._Anonymous_e__Union
                 {
                     mi = new MOUSEINPUT
                     {
-                        dx        = absX,
-                        dy        = absY,
-                        mouseData = (uint)mouseData,
-                        dwFlags   = MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE
-                                  | MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE
-                                  | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK
-                                  | buttonFlags,
+                        dx          = absX,
+                        dy          = absY,
+                        mouseData   = 0,
+                        dwFlags     = MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE
+                                    | MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE
+                                    | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK,
                         time        = 0,
                         dwExtraInfo = UIntPtr.Zero,
                     }
                 }
             };
 
-            PInvoke.SendInput(1, &input, sizeof(INPUT));
+            events[1] = new INPUT
+            {
+                type = INPUT_TYPE.INPUT_MOUSE,
+                Anonymous = new INPUT._Anonymous_e__Union
+                {
+                    mi = new MOUSEINPUT
+                    {
+                        dx          = absX,
+                        dy          = absY,
+                        mouseData   = (uint)mouseData,
+                        // No MOUSEEVENTF_MOVE — dx/dy are ignored without it, cursor
+                        // stays where event[0] placed it. ABSOLUTE+VIRTUALDESK are still
+                        // required for the button message to be routed correctly on some
+                        // driver stacks.
+                        dwFlags     = MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE
+                                    | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK
+                                    | buttonFlags,
+                        time        = 0,
+                        dwExtraInfo = UIntPtr.Zero,
+                    }
+                }
+            };
+
+            // nInputs=1 for a move-only call (buttonFlags==0), 2 when a button is involved.
+            uint count = buttonFlags == 0 ? 1u : 2u;
+            PInvoke.SendInput(count, events, sizeof(INPUT));
+        }
+
+        private void OnContentPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_inputForwardingEnabled || _closed) return;
+
+            var point         = e.GetCurrentPoint(null);
+            var kind          = point.Properties.PointerUpdateKind;
+            var (msg, wParam) = GetDownMessage(kind);
+            if (msg == 0) return; // unrecognised button — ignore
+
+            var src = RemapToSource(point.Position);
+            AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
+            PostMouseButton(src.X, src.Y, msg, wParam);
+
+            // Capture pointer so PointerReleased fires even if the cursor leaves
+            // the window while a button is held, guaranteeing a matching button-up.
+            ((UIElement)sender).CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        private void OnContentPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_inputForwardingEnabled || _closed) return;
+
+            var point         = e.GetCurrentPoint(null);
+            var kind          = point.Properties.PointerUpdateKind;
+            var (msg, wParam) = GetUpMessage(kind);
+            if (msg == 0) return;
+
+            var src = RemapToSource(point.Position);
+            PostMouseButton(src.X, src.Y, msg, wParam);
+
+            ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+            e.Handled = true;
+        }
+
+        // Maps PointerUpdateKind → (WM_* message, wParam) for PostMessage.
+        // Using PostMessage rather than SendInput keeps the real cursor inside the
+        // LensWindow — the message is delivered directly to the target HWND without
+        // moving the physical cursor.
+        private static (uint msg, nuint wParam) GetDownMessage(PointerUpdateKind kind) =>
+            kind switch
+            {
+                PointerUpdateKind.LeftButtonPressed   => (0x0201u, 0x0001u),           // WM_LBUTTONDOWN, MK_LBUTTON
+                PointerUpdateKind.RightButtonPressed  => (0x0204u, 0x0002u),           // WM_RBUTTONDOWN, MK_RBUTTON
+                PointerUpdateKind.MiddleButtonPressed => (0x0207u, 0x0010u),           // WM_MBUTTONDOWN, MK_MBUTTON
+                PointerUpdateKind.XButton1Pressed     => (0x020Bu, (nuint)(1u << 16)), // WM_XBUTTONDOWN, XBUTTON1 in hi-word
+                PointerUpdateKind.XButton2Pressed     => (0x020Bu, (nuint)(2u << 16)), // WM_XBUTTONDOWN, XBUTTON2 in hi-word
+                _                                     => (0u, 0u),
+            };
+
+        private static (uint msg, nuint wParam) GetUpMessage(PointerUpdateKind kind) =>
+            kind switch
+            {
+                PointerUpdateKind.LeftButtonReleased   => (0x0202u, 0u),               // WM_LBUTTONUP
+                PointerUpdateKind.RightButtonReleased  => (0x0205u, 0u),               // WM_RBUTTONUP
+                PointerUpdateKind.MiddleButtonReleased => (0x0208u, 0u),               // WM_MBUTTONUP
+                PointerUpdateKind.XButton1Released     => (0x020Cu, (nuint)(1u << 16)),// WM_XBUTTONUP, XBUTTON1
+                PointerUpdateKind.XButton2Released     => (0x020Cu, (nuint)(2u << 16)),// WM_XBUTTONUP, XBUTTON2
+                _                                      => (0u, 0u),
+            };
+
+        /// <summary>
+        /// Delivers a mouse button message directly to the window at the given global
+        /// screen position via PostMessage, without moving the real cursor.
+        /// WindowFromPoint returns the deepest child window at the point, so button
+        /// messages reach the correct control (e.g. a button inside a dialog) rather
+        /// than just the top-level window.
+        /// </summary>
+        /// <remarks>
+        /// Like SendInput, PostMessage is subject to UIPI: messages targeting a window
+        /// at a higher integrity level (e.g. Task Manager) are silently dropped.
+        /// </remarks>
+        private static void PostMouseButton(int globalX, int globalY, uint msg, nuint wParam)
+        {
+            // CsWin32 0.3.x maps Win32 POINT to System.Drawing.Point.
+            var pt     = new System.Drawing.Point(globalX, globalY);
+            var target = PInvoke.WindowFromPoint(pt);
+            if (target == default) return;
+
+            // Convert global screen coords → client coords of the target window.
+            PInvoke.ScreenToClient(target, ref pt);
+
+            // MAKELPARAM: low word = X, high word = Y (matches Win32 macro exactly).
+            nint lParamVal = (nint)(uint)((ushort)pt.X | ((uint)(ushort)pt.Y << 16));
+
+            PInvoke.PostMessage(target, msg, new WPARAM(wParam), new LPARAM(lParamVal));
         }
 
         // ═════════════════════════════════════════════════════════════════════════

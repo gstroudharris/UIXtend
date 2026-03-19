@@ -5,7 +5,16 @@
       "Bash(grep -E \"\\\\.\\(json|config|xml|txt\\)$\")",
       "Bash(dotnet build:*)",
       "WebSearch",
-      "Bash(dir \"D:\\\\Dev\\\\UIXtend\\\\UIXtend\\\\bin\\\\Debug\\\\net10.0-windows10.0.22621.0\\\\win-x64\\\\assets\")"
+      "Bash(dir \"D:\\\\Dev\\\\UIXtend\\\\UIXtend\\\\bin\\\\Debug\\\\net10.0-windows10.0.22621.0\\\\win-x64\\\\assets\")",
+      "Bash(find D:/Dev/UIXtend -name GetCursorPos* -o -name NativeMethods*.cs)",
+      "Bash(find D:/Dev/UIXtend -path *packages* -name *.cs)",
+      "Bash(xargs grep:*)",
+      "Bash(find D:/Dev/UIXtend -name *.cs -path *CsWin32*)",
+      "Bash(find D:/Dev/UIXtend -path */obj/* -name *.cs)",
+      "Bash(find D:/Dev/UIXtend -path */generated/* -name *.cs)",
+      "Bash(find D:/Dev/UIXtend/UIXtend/obj -path */generated/* -name *.cs)",
+      "Bash(find D:/Dev/UIXtend/UIXtend/obj/Debug/net10.0-windows10.0.22621.0/win-x64/generated -name *.cs)",
+      "Bash(grep -A6 static.*PostMessage D:/Dev/UIXtend/UIXtend/obj/Debug/net10.0-windows10.0.22621.0/win-x64/generated/Microsoft.Windows.CsWin32/Microsoft.Windows.CsWin32.SourceGenerator/Windows.Win32.PInvoke.USER32.dll.g.cs)"
     ]
   }
 }
