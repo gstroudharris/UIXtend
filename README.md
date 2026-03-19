@@ -74,3 +74,5 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 ## Attribution
 
 Icons from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) © Microsoft Corporation, MIT License.
+
+Vibe coding assistance from [Claude Sonnet 4.6](https://claude.ai) by Anthropic.
