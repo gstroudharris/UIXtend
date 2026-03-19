@@ -2,6 +2,12 @@
 
 A high-performance Windows screen-magnification overlay designed for gamers and users with visual or motor impairments. Capture any region of your screen into a floating, resizable lens window that updates in real time at up to 144 FPS with near-zero CPU impact.
 
+## Install
+- **Download** the first release here: https://github.com/gstroudharris/UIXtend/releases/tag/UIXtend_0.1.0.0_x64
+- **Unzip** the release folder.
+- **Run** Install.bat.
+- **Test** the program and let me know how it goes!
+
 ## Features
 
 - **Region capture** — drag to select any area of any monitor and open it as a floating lens
