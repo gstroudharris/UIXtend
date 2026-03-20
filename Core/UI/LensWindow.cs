@@ -147,11 +147,21 @@ namespace UIXtend.Core.UI
             var styleAfter  = styleBefore & ~(int)WINDOW_STYLE.WS_OVERLAPPEDWINDOW
                                           | unchecked((int)WINDOW_STYLE.WS_POPUP);
             PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE, styleAfter);
-            PInvoke.SetWindowPos(hwnd, default, 0, 0, 0, 0,
+
+            // WS_EX_NOACTIVATE — overlay never steals focus from the game when clicked.
+            var exBefore = PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+            var exAfter  = exBefore | unchecked((int)WINDOW_EX_STYLE.WS_EX_NOACTIVATE)
+                                    | unchecked((int)WINDOW_EX_STYLE.WS_EX_TOOLWINDOW);
+            PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE, exAfter);
+
+            // Commit style changes and assert HWND_TOPMOST explicitly.
+            // HWND_TOPMOST = (HWND)(-1); belt-and-suspenders over presenter.IsAlwaysOnTop.
+            var hwndTopmost = new HWND(unchecked((nint)(-1)));
+            PInvoke.SetWindowPos(hwnd, hwndTopmost, 0, 0, 0, 0,
                 SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE |
-                SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE |
-                SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
-            AppLogger.Log($"  WS style: 0x{styleBefore:X8} -> 0x{styleAfter:X8} (SWP_FRAMECHANGED applied)");
+                SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
+            AppLogger.Log($"  WS style:    0x{styleBefore:X8} -> 0x{styleAfter:X8}");
+            AppLogger.Log($"  WS_EX style: 0x{exBefore:X8}    -> 0x{exAfter:X8} (NOACTIVATE|TOOLWINDOW, HWND_TOPMOST asserted)");
 
             AppWindow.MoveAndResize(new RectInt32(
                 (int)capture.Region.X, (int)capture.Region.Y,
