@@ -22,7 +22,7 @@ $MsixFile    = Join-Path $TestDir     "UIXtend_${Version}_x64.msix"
 $ZipOut      = Join-Path $AppPackages "UIXtend-${VersionTag}-win-x64.zip"
 
 Write-Host "`nBuilding UIXtend $VersionTag ...`n" -ForegroundColor Cyan
-dotnet build "$ProjectDir\UIXtend.csproj" -c Release
+dotnet build "$ProjectDir\UIXtend.csproj" -c Release /p:BuildingMsix=true /p:GenerateAppxPackageOnBuild=true
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 
 Write-Host "`nSigning MSIX ..." -ForegroundColor Cyan

@@ -6,13 +6,19 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>UIXtend</RootNamespace>
     <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>MSIX</WindowsPackageType>
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
-    <EnableMsixTooling>true</EnableMsixTooling>
-    <EnableCoreMrtTooling>true</EnableCoreMrtTooling>
+    <!-- Dev builds run unpackaged (dotnet run). Release builds use MSIX via MakeRelease.ps1. -->
+    <WindowsPackageType Condition="'$(BuildingMsix)' != 'true'">None</WindowsPackageType>
+    <WindowsPackageType Condition="'$(BuildingMsix)' == 'true'">MSIX</WindowsPackageType>
+    <!-- Self-contained for dev builds so no separate runtime install is needed -->
+    <WindowsAppSDKSelfContained Condition="'$(BuildingMsix)' != 'true'">true</WindowsAppSDKSelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(BuildingMsix)' == 'true'">false</WindowsAppSDKSelfContained>
+    <EnableMsixTooling Condition="'$(BuildingMsix)' != 'true'">false</EnableMsixTooling>
+    <EnableMsixTooling Condition="'$(BuildingMsix)' == 'true'">true</EnableMsixTooling>
+    <EnableCoreMrtTooling Condition="'$(BuildingMsix)' != 'true'">false</EnableCoreMrtTooling>
+    <EnableCoreMrtTooling Condition="'$(BuildingMsix)' == 'true'">true</EnableCoreMrtTooling>
     <!-- Thumbprint of the local self-signed cert — run GenerateCert.ps1 to populate -->
     <PackageCertificateThumbprint>6B3FA6C835D46770386FF501C111DAD283A1CCF3</PackageCertificateThumbprint>
-    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
     <AppxPackageDir>..\AppPackages\</AppxPackageDir>
     <AppxBundle>Never</AppxBundle>
     <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>

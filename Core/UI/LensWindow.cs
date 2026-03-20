@@ -122,6 +122,10 @@ namespace UIXtend.Core.UI
 
             var root = new Grid();
             root.Children.Add(_panel);
+            // _contentSurface sits above the panel but below _chromeGrid so that
+            // resize handles (which live in chrome) still win in z-order.
+            // Kept outside chrome so it stays active when chrome is hidden.
+            root.Children.Add(_contentSurface);
             root.Children.Add(_chromeGrid);
             Content = root;
 
@@ -486,7 +490,8 @@ namespace UIXtend.Core.UI
             var chrome = new Grid { Visibility = Visibility.Visible };
             chrome.Children.Add(tintOverlay);
             chrome.Children.Add(edgeBorder);
-            chrome.Children.Add(_contentSurface); // below top bar + resize handles in z-order
+            // _contentSurface is NOT added here — it lives in the root Grid so it stays
+            // active even when chrome is hidden (main menu closed). See constructor.
             chrome.Children.Add(_topBarElement);
             chrome.Children.Add(bottomH);
             chrome.Children.Add(leftH);
