@@ -287,15 +287,17 @@ namespace UIXtend.Core.UI
                     AppContext.BaseDirectory,
                     "assets",
                     "ic_fluent_cursor_click_24_filled.png"));
+            var toggleBtnIcon = new BitmapIcon
+            {
+                UriSource        = toggleBtnIconUri,
+                ShowAsMonochrome = true,
+                Width            = 16,
+                Height           = 16,
+                Foreground       = FgBrush()   // OFF = dark
+            };
             var toggleBtn = new ToggleButton
             {
-                Content = new BitmapIcon
-                {
-                    UriSource        = toggleBtnIconUri,
-                    ShowAsMonochrome = true,
-                    Width            = 16,
-                    Height           = 16
-                },
+                Content                    = toggleBtnIcon,
                 Width                      = CloseButtonLogicalW,
                 Padding                    = new Thickness(0),
                 HorizontalAlignment        = HorizontalAlignment.Right,
@@ -304,45 +306,43 @@ namespace UIXtend.Core.UI
                 VerticalAlignment          = VerticalAlignment.Stretch
             };
             ToolTipService.SetToolTip(toggleBtn, "Toggle input forwarding");
-            // Unchecked state — matches close button transparency
-            toggleBtn.Resources["ToggleButtonBackground"]                        = Trans();
-            toggleBtn.Resources["ToggleButtonBackgroundPointerOver"]             = Hover();
-            toggleBtn.Resources["ToggleButtonBackgroundPressed"]                 = Press();
-            toggleBtn.Resources["ToggleButtonBackgroundDisabled"]                = Trans();
-            toggleBtn.Resources["ToggleButtonForeground"]                        = FgBrush();
-            toggleBtn.Resources["ToggleButtonForegroundPointerOver"]             = FgBrush();
-            toggleBtn.Resources["ToggleButtonForegroundPressed"]                 = FgBrush();
-            toggleBtn.Resources["ToggleButtonBorderBrush"]                       = Trans();
-            toggleBtn.Resources["ToggleButtonBorderBrushPointerOver"]            = Trans();
-            toggleBtn.Resources["ToggleButtonBorderBrushPressed"]                = Trans();
-            // Checked state — slightly brighter so it reads as "on"
-            SolidColorBrush CheckedBg()     => new(Windows.UI.Color.FromArgb(120, 255, 255, 255));
-            SolidColorBrush CheckedBgHov()  => new(Windows.UI.Color.FromArgb(160, 255, 255, 255));
-            SolidColorBrush CheckedFg()     => new(Windows.UI.Color.FromArgb(255,   0,   0,   0));
-            toggleBtn.Resources["ToggleButtonBackgroundChecked"]                 = CheckedBg();
-            toggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"]      = CheckedBgHov();
-            toggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]          = CheckedBg();
-            toggleBtn.Resources["ToggleButtonForegroundChecked"]                 = CheckedFg();
-            toggleBtn.Resources["ToggleButtonForegroundCheckedPointerOver"]      = CheckedFg();
-            toggleBtn.Resources["ToggleButtonForegroundCheckedPressed"]          = CheckedFg();
-            toggleBtn.Resources["ToggleButtonBorderBrushChecked"]                = Trans();
-            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]     = Trans();
-            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]         = Trans();
+            // Background resources only — foreground is set directly on BitmapIcon
+            SolidColorBrush CheckedBg()  => new(Windows.UI.Color.FromArgb( 60,   0,   0,   0));
+            toggleBtn.Resources["ToggleButtonBackground"]                   = Trans();
+            toggleBtn.Resources["ToggleButtonBackgroundPointerOver"]        = Hover();
+            toggleBtn.Resources["ToggleButtonBackgroundPressed"]            = Press();
+            toggleBtn.Resources["ToggleButtonBackgroundDisabled"]           = Trans();
+            toggleBtn.Resources["ToggleButtonBackgroundChecked"]            = CheckedBg();
+            toggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"] = CheckedBg();
+            toggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]     = CheckedBg();
+            toggleBtn.Resources["ToggleButtonBorderBrush"]                  = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushPointerOver"]       = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushPressed"]           = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushChecked"]           = Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]= Trans();
+            toggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]    = Trans();
+            AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn init icon.Foreground=dark IsChecked={toggleBtn.IsChecked}");
+            toggleBtn.PointerEntered += (s, e) =>
+                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerEntered IsChecked={toggleBtn.IsChecked}");
+            toggleBtn.PointerExited  += (s, e) =>
+                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerExited  IsChecked={toggleBtn.IsChecked}");
             toggleBtn.Checked   += (s, e) =>
             {
+                toggleBtnIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
                 _inputForwardingEnabled = true;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = true;
                 SetClickThrough(false);
-                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding ON");
+                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding ON — icon.Foreground=white");
             };
             toggleBtn.Unchecked += (s, e) =>
             {
+                toggleBtnIcon.Foreground = FgBrush();
                 _inputForwardingEnabled = false;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = false;
                 SetClickThrough(true);
-                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF");
+                AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF — icon.Foreground=dark");
             };
 
             // ── Live-capture toggle button ────────────────────────────────────────
@@ -351,15 +351,17 @@ namespace UIXtend.Core.UI
                     AppContext.BaseDirectory,
                     "assets",
                     "ic_fluent_play_circle_24_filled.png"));
+            var liveBtnIcon = new BitmapIcon
+            {
+                UriSource        = liveBtnIconUri,
+                ShowAsMonochrome = true,
+                Width            = 16,
+                Height           = 16,
+                Foreground       = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255))  // ON = white
+            };
             var liveToggleBtn = new ToggleButton
             {
-                Content = new BitmapIcon
-                {
-                    UriSource        = liveBtnIconUri,
-                    ShowAsMonochrome = true,
-                    Width            = 16,
-                    Height           = 16
-                },
+                Content                    = liveBtnIcon,
                 IsChecked                  = true,   // live by default
                 Width                      = CloseButtonLogicalW,
                 Padding                    = new Thickness(0),
@@ -369,35 +371,37 @@ namespace UIXtend.Core.UI
                 VerticalAlignment          = VerticalAlignment.Stretch
             };
             ToolTipService.SetToolTip(liveToggleBtn, "Toggle live capture");
+            // Background resources only — foreground is set directly on BitmapIcon
             liveToggleBtn.Resources["ToggleButtonBackground"]                        = Trans();
             liveToggleBtn.Resources["ToggleButtonBackgroundPointerOver"]             = Hover();
             liveToggleBtn.Resources["ToggleButtonBackgroundPressed"]                 = Press();
             liveToggleBtn.Resources["ToggleButtonBackgroundDisabled"]                = Trans();
-            liveToggleBtn.Resources["ToggleButtonForeground"]                        = FgBrush();
-            liveToggleBtn.Resources["ToggleButtonForegroundPointerOver"]             = FgBrush();
-            liveToggleBtn.Resources["ToggleButtonForegroundPressed"]                 = FgBrush();
+            liveToggleBtn.Resources["ToggleButtonBackgroundChecked"]                 = CheckedBg();
+            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"]      = CheckedBg();
+            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]          = CheckedBg();
             liveToggleBtn.Resources["ToggleButtonBorderBrush"]                       = Trans();
             liveToggleBtn.Resources["ToggleButtonBorderBrushPointerOver"]            = Trans();
             liveToggleBtn.Resources["ToggleButtonBorderBrushPressed"]                = Trans();
-            liveToggleBtn.Resources["ToggleButtonBackgroundChecked"]                 = CheckedBg();
-            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPointerOver"]      = CheckedBgHov();
-            liveToggleBtn.Resources["ToggleButtonBackgroundCheckedPressed"]          = CheckedBg();
-            liveToggleBtn.Resources["ToggleButtonForegroundChecked"]                 = CheckedFg();
-            liveToggleBtn.Resources["ToggleButtonForegroundCheckedPointerOver"]      = CheckedFg();
-            liveToggleBtn.Resources["ToggleButtonForegroundCheckedPressed"]          = CheckedFg();
             liveToggleBtn.Resources["ToggleButtonBorderBrushChecked"]                = Trans();
             liveToggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]     = Trans();
             liveToggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]         = Trans();
+            AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn init icon.Foreground=white IsChecked={liveToggleBtn.IsChecked}");
+            liveToggleBtn.PointerEntered += (s, e) =>
+                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerEntered IsChecked={liveToggleBtn.IsChecked}");
+            liveToggleBtn.PointerExited  += (s, e) =>
+                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerExited  IsChecked={liveToggleBtn.IsChecked}");
             liveToggleBtn.Checked   += (s, e) =>
             {
+                liveBtnIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
                 _captureLive = true;
-                AppLogger.Log($"  LensWindow {_capture.Id}: live capture ON");
+                AppLogger.Log($"  LensWindow {_capture.Id}: live capture ON — icon.Foreground=white");
             };
             liveToggleBtn.Unchecked += (s, e) =>
             {
+                liveBtnIcon.Foreground = FgBrush();
                 _needFrozenFrame = true;  // snapshot the very next arriving frame
                 _captureLive = false;
-                AppLogger.Log($"  LensWindow {_capture.Id}: live capture OFF (frozen)");
+                AppLogger.Log($"  LensWindow {_capture.Id}: live capture OFF — icon.Foreground=dark");
             };
 
             var topBarContent = new Grid();
