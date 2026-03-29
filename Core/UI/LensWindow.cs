@@ -47,8 +47,9 @@ namespace UIXtend.Core.UI
         private readonly Stopwatch _openStopwatch = Stopwatch.StartNew();
         private bool _firstFrameLogged;
 
-        // ── Input forwarding state ────────────────────────────────────────────────
+        // ── Input forwarding / click-through state ───────────────────────────────
         private bool _inputForwardingEnabled;
+        private bool _clickThrough = true;
 
         // ── Live capture state ────────────────────────────────────────────────────
         private bool _captureLive = true;
@@ -97,6 +98,15 @@ namespace UIXtend.Core.UI
                 {
                     if (_chromeGrid != null)
                         _chromeGrid.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+
+                    // Main menu visible → content surface not interactive (buttons only).
+                    // Main menu hidden  → content surface active for forwarding or passthrough.
+                    if (_contentSurface != null)
+                        _contentSurface.IsHitTestVisible = !value;
+
+                    // Main menu visible → no click-through (user needs to reach chrome buttons).
+                    // Main menu hidden  → click-through unless input forwarding is on.
+                    SetClickThrough(!value && !_inputForwardingEnabled);
                 });
             }
         }
@@ -162,6 +172,7 @@ namespace UIXtend.Core.UI
                 SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
             AppLogger.Log($"  WS style:    0x{styleBefore:X8} -> 0x{styleAfter:X8}");
             AppLogger.Log($"  WS_EX style: 0x{exBefore:X8}    -> 0x{exAfter:X8} (NOACTIVATE|TOOLWINDOW, HWND_TOPMOST asserted)");
+
 
             AppWindow.MoveAndResize(new RectInt32(
                 (int)capture.Region.X, (int)capture.Region.Y,
@@ -322,6 +333,7 @@ namespace UIXtend.Core.UI
                 _inputForwardingEnabled = true;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = true;
+                SetClickThrough(false);
                 AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding ON");
             };
             toggleBtn.Unchecked += (s, e) =>
@@ -329,6 +341,7 @@ namespace UIXtend.Core.UI
                 _inputForwardingEnabled = false;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = false;
+                SetClickThrough(true);
                 AppLogger.Log($"  LensWindow {_capture.Id}: input forwarding OFF");
             };
 
@@ -788,6 +801,9 @@ namespace UIXtend.Core.UI
 
             AppLogger.Log($"  LensWindow {_capture.Id}: subscribing to FrameArrived");
             _capture.FrameArrived += OnFrameArrived;
+
+            // Apply initial click-through state now that the window is fully loaded.
+            SetClickThrough(!_showOverlay && !_inputForwardingEnabled);
         }
 
         private void OnPanelSizeChanged(object sender, SizeChangedEventArgs e)
@@ -1112,36 +1128,58 @@ namespace UIXtend.Core.UI
 
         private void OnContentPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
+            if (_closed || _isDragging || _isResizing) return;
 
             var point         = e.GetCurrentPoint(null);
             var kind          = point.Properties.PointerUpdateKind;
             var (msg, wParam) = GetDownMessage(kind);
-            if (msg == 0) return; // unrecognised button — ignore
+            if (msg == 0) return;
+
+            if (_clickThrough)
+            {
+                // Fake click-through: WS_EX_TRANSPARENT causes WindowFromPoint to skip
+                // us, so PostMouseButton delivers the click to the window below.
+                GetCursorPos(out var cur);
+                AppLogger.Log($"  LensWindow {_capture.Id}: click-through {kind} → ({cur.X},{cur.Y})");
+                PostMouseButton(cur.X, cur.Y, msg, wParam);
+                ((UIElement)sender).CapturePointer(e.Pointer);
+                e.Handled = true;
+                return;
+            }
+
+            if (!_inputForwardingEnabled) return;
 
             var src = RemapToSource(point.Position);
             AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
             PostMouseButton(src.X, src.Y, msg, wParam);
-
-            // Capture pointer so PointerReleased fires even if the cursor leaves
-            // the window while a button is held, guaranteeing a matching button-up.
             ((UIElement)sender).CapturePointer(e.Pointer);
             e.Handled = true;
         }
 
         private void OnContentPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
+            if (_closed || _isDragging || _isResizing) return;
 
             var point         = e.GetCurrentPoint(null);
             var kind          = point.Properties.PointerUpdateKind;
             var (msg, wParam) = GetUpMessage(kind);
             if (msg == 0) return;
 
+            if (_clickThrough)
+            {
+                GetCursorPos(out var cur);
+                AppLogger.Log($"  LensWindow {_capture.Id}: click-through {kind} → ({cur.X},{cur.Y})");
+                PostMouseButton(cur.X, cur.Y, msg, wParam);
+                ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+                e.Handled = true;
+                return;
+            }
+
+            if (!_inputForwardingEnabled) return;
+
             var src = RemapToSource(point.Position);
             AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
             PostMouseButton(src.X, src.Y, msg, wParam);
-
             ((UIElement)sender).ReleasePointerCapture(e.Pointer);
             e.Handled = true;
         }
@@ -1233,7 +1271,25 @@ namespace UIXtend.Core.UI
 
         private void OnContentPointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
-            if (!_inputForwardingEnabled || _closed || _isDragging || _isResizing) return;
+            if (_closed || _isDragging || _isResizing) return;
+
+            if (_clickThrough)
+            {
+                GetCursorPos(out var cur);
+                var ctProps = e.GetCurrentPoint(null).Properties;
+                var ctMods  = e.KeyModifiers;
+                ushort fwk  = 0;
+                if (ctMods.HasFlag(Windows.System.VirtualKeyModifiers.Control)) fwk |= 0x0008;
+                if (ctMods.HasFlag(Windows.System.VirtualKeyModifiers.Shift))   fwk |= 0x0004;
+                uint  ctMsg    = ctProps.IsHorizontalMouseWheel ? 0x020Eu : 0x020Au;
+                nuint ctWParam = (nuint)(uint)((uint)fwk | ((uint)(ushort)ctProps.MouseWheelDelta << 16));
+                AppLogger.Log($"  LensWindow {_capture.Id}: click-through wheel → ({cur.X},{cur.Y})");
+                PostMouseWheel(cur.X, cur.Y, ctMsg, ctWParam);
+                e.Handled = true;
+                return;
+            }
+
+            if (!_inputForwardingEnabled) return;
 
             var point = e.GetCurrentPoint(null);
             var props = point.Properties;
@@ -1303,5 +1359,38 @@ namespace UIXtend.Core.UI
 
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out CURSORPOINT pt);
+
+        // ── Click-through ─────────────────────────────────────────────────────────
+        //
+        // WinUI 3 uses WM_POINTER input (not legacy WM_MOUSE), routed directly to
+        // child HWNDs.  This bypasses WM_NCHITTEST on the parent, so the standard
+        // HTTRANSPARENT approach cannot work here.
+        //
+        // Instead we use "fake passthrough":
+        //   1. WS_EX_TRANSPARENT on the parent HWND causes WindowFromPoint to skip us,
+        //      so the existing PostMouseButton/PostMouseWheel helpers (which call
+        //      WindowFromPoint internally) automatically target the game window below.
+        //   2. Pointer events are received normally via XAML (IsHitTestVisible=true),
+        //      handled, and re-dispatched at the raw cursor position.
+
+        private const int WS_EX_TRANSPARENT = 0x00000020;
+
+        private void SetClickThrough(bool clickThrough)
+        {
+            _clickThrough = clickThrough;
+
+            // Toggle WS_EX_TRANSPARENT on the parent so that WindowFromPoint skips us.
+            var hwnd    = (HWND)_hwndPtr;
+            var exStyle = PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+            PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE,
+                clickThrough ? exStyle | WS_EX_TRANSPARENT : exStyle & ~WS_EX_TRANSPARENT);
+
+            // Content surface must remain hit-testable to receive XAML pointer events
+            // for re-dispatch.  (ShowOverlay=true resets this to false.)
+            if (_contentSurface != null)
+                _contentSurface.IsHitTestVisible = clickThrough || _inputForwardingEnabled;
+
+            AppLogger.Log($"  LensWindow {_capture.Id}: click-through {(clickThrough ? "ON" : "OFF")}");
+        }
     }
 }
