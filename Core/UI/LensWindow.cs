@@ -321,14 +321,24 @@ namespace UIXtend.Core.UI
             toggleBtn.Resources["ToggleButtonBorderBrushChecked"]           = Trans();
             toggleBtn.Resources["ToggleButtonBorderBrushCheckedPointerOver"]= Trans();
             toggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]    = Trans();
+            var whiteBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+            var darkBrush  = FgBrush();
             AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn init icon.Foreground=dark IsChecked={toggleBtn.IsChecked}");
             toggleBtn.PointerEntered += (s, e) =>
-                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerEntered IsChecked={toggleBtn.IsChecked}");
+            {
+                // Preview the opposite state: OFF→white, ON→dark
+                toggleBtnIcon.Foreground = toggleBtn.IsChecked == true ? darkBrush : whiteBrush;
+                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerEntered IsChecked={toggleBtn.IsChecked} → preview {(toggleBtn.IsChecked == true ? "dark" : "white")}");
+            };
             toggleBtn.PointerExited  += (s, e) =>
-                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerExited  IsChecked={toggleBtn.IsChecked}");
+            {
+                // Revert to current state: OFF→dark, ON→white
+                toggleBtnIcon.Foreground = toggleBtn.IsChecked == true ? whiteBrush : darkBrush;
+                AppLogger.Log($"  LensWindow {_capture.Id}: toggleBtn PointerExited  IsChecked={toggleBtn.IsChecked} → revert {(toggleBtn.IsChecked == true ? "white" : "dark")}");
+            };
             toggleBtn.Checked   += (s, e) =>
             {
-                toggleBtnIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                toggleBtnIcon.Foreground = whiteBrush;
                 _inputForwardingEnabled = true;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = true;
@@ -337,7 +347,7 @@ namespace UIXtend.Core.UI
             };
             toggleBtn.Unchecked += (s, e) =>
             {
-                toggleBtnIcon.Foreground = FgBrush();
+                toggleBtnIcon.Foreground = darkBrush;
                 _inputForwardingEnabled = false;
                 if (_contentSurface != null)
                     _contentSurface.IsHitTestVisible = false;
@@ -387,18 +397,24 @@ namespace UIXtend.Core.UI
             liveToggleBtn.Resources["ToggleButtonBorderBrushCheckedPressed"]         = Trans();
             AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn init icon.Foreground=white IsChecked={liveToggleBtn.IsChecked}");
             liveToggleBtn.PointerEntered += (s, e) =>
-                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerEntered IsChecked={liveToggleBtn.IsChecked}");
+            {
+                liveBtnIcon.Foreground = liveToggleBtn.IsChecked == true ? darkBrush : whiteBrush;
+                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerEntered IsChecked={liveToggleBtn.IsChecked} → preview {(liveToggleBtn.IsChecked == true ? "dark" : "white")}");
+            };
             liveToggleBtn.PointerExited  += (s, e) =>
-                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerExited  IsChecked={liveToggleBtn.IsChecked}");
+            {
+                liveBtnIcon.Foreground = liveToggleBtn.IsChecked == true ? whiteBrush : darkBrush;
+                AppLogger.Log($"  LensWindow {_capture.Id}: liveToggleBtn PointerExited  IsChecked={liveToggleBtn.IsChecked} → revert {(liveToggleBtn.IsChecked == true ? "white" : "dark")}");
+            };
             liveToggleBtn.Checked   += (s, e) =>
             {
-                liveBtnIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                liveBtnIcon.Foreground = whiteBrush;
                 _captureLive = true;
                 AppLogger.Log($"  LensWindow {_capture.Id}: live capture ON — icon.Foreground=white");
             };
             liveToggleBtn.Unchecked += (s, e) =>
             {
-                liveBtnIcon.Foreground = FgBrush();
+                liveBtnIcon.Foreground = darkBrush;
                 _needFrozenFrame = true;  // snapshot the very next arriving frame
                 _captureLive = false;
                 AppLogger.Log($"  LensWindow {_capture.Id}: live capture OFF — icon.Foreground=dark");
