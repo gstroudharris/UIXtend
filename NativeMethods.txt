@@ -56,3 +56,7 @@ MOUSE_EVENT_FLAGS
 WindowFromPoint
 ScreenToClient
 PostMessage
+GetClassName
+GetParent
+IsChild
+RealChildWindowFromPoint

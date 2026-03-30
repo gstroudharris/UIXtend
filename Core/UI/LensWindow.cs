@@ -98,15 +98,6 @@ namespace UIXtend.Core.UI
                 {
                     if (_chromeGrid != null)
                         _chromeGrid.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-
-                    // Main menu visible → content surface not interactive (buttons only).
-                    // Main menu hidden  → content surface active for forwarding or passthrough.
-                    if (_contentSurface != null)
-                        _contentSurface.IsHitTestVisible = !value;
-
-                    // Main menu visible → no click-through (user needs to reach chrome buttons).
-                    // Main menu hidden  → click-through unless input forwarding is on.
-                    SetClickThrough(!value && !_inputForwardingEnabled);
                 });
             }
         }
@@ -823,7 +814,8 @@ namespace UIXtend.Core.UI
             _capture.FrameArrived += OnFrameArrived;
 
             // Apply initial click-through state now that the window is fully loaded.
-            SetClickThrough(!_showOverlay && !_inputForwardingEnabled);
+            // Click-through depends only on input forwarding, not overlay visibility.
+            SetClickThrough(!_inputForwardingEnabled);
         }
 
         private void OnPanelSizeChanged(object sender, SizeChangedEventArgs e)
@@ -1170,7 +1162,10 @@ namespace UIXtend.Core.UI
             if (!_inputForwardingEnabled) return;
 
             var src = RemapToSource(point.Position);
-            AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
+            GetCursorPos(out var curDown);
+            var winPos = AppWindow.Position;
+            var winSz  = AppWindow.Size;
+            AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} logicalPos=({point.Position.X:F1},{point.Position.Y:F1}) → src=({src.X},{src.Y}) cursor=({curDown.X},{curDown.Y}) win=({winPos.X},{winPos.Y} {winSz.Width}x{winSz.Height}) region=({_capture.Region.X},{_capture.Region.Y} {_capture.Region.Width}x{_capture.Region.Height})");
             PostMouseButton(src.X, src.Y, msg, wParam);
             ((UIElement)sender).CapturePointer(e.Pointer);
             e.Handled = true;
@@ -1198,7 +1193,7 @@ namespace UIXtend.Core.UI
             if (!_inputForwardingEnabled) return;
 
             var src = RemapToSource(point.Position);
-            AppLogger.Log($"  LensWindow {_capture.Id}: forward {kind} → ({src.X},{src.Y})");
+            AppLogger.Log($"  LensWindow {_capture.Id}: forward release {kind} → ({src.X},{src.Y})");
             PostMouseButton(src.X, src.Y, msg, wParam);
             ((UIElement)sender).ReleasePointerCapture(e.Pointer);
             e.Handled = true;
@@ -1273,20 +1268,50 @@ namespace UIXtend.Core.UI
         /// Like SendInput, PostMessage is subject to UIPI: messages targeting a window
         /// at a higher integrity level (e.g. Task Manager) are silently dropped.
         /// </remarks>
-        private static void PostMouseButton(int globalX, int globalY, uint msg, nuint wParam)
+        /// <summary>
+        /// Finds the window beneath our entire LensWindow tree at the given point.
+        /// If WindowFromPoint returns our parent or a WinUI child HWND, we temporarily
+        /// hide the whole window (clear WS_VISIBLE) so WindowFromPoint skips it entirely.
+        /// </summary>
+        private HWND FindTargetWindowAt(System.Drawing.Point pt)
         {
-            // CsWin32 0.3.x maps Win32 POINT to System.Drawing.Point.
-            var pt     = new System.Drawing.Point(globalX, globalY);
+            const int WS_VISIBLE = 0x10000000;
+            var hwnd = (HWND)_hwndPtr;
+
             var target = PInvoke.WindowFromPoint(pt);
-            if (target == default) return;
+
+            if (target != default && (target == hwnd || PInvoke.IsChild(hwnd, target)))
+            {
+                // The hit landed on our window or its XAML island child.
+                // Temporarily remove WS_VISIBLE so the entire window tree is skipped.
+                var style = PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE);
+                PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE, style & ~WS_VISIBLE);
+                target = PInvoke.WindowFromPoint(pt);
+                PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE, style);
+            }
+
+            return target;
+        }
+
+        private void PostMouseButton(int globalX, int globalY, uint msg, nuint wParam)
+        {
+            var pt     = new System.Drawing.Point(globalX, globalY);
+            var target = FindTargetWindowAt(pt);
+
+            if (target == default)
+            {
+                AppLogger.Log($"  PostMouseButton: pos=({globalX},{globalY}) msg=0x{msg:X4} no target found, dropping");
+                return;
+            }
+
+            unsafe { AppLogger.Log($"  PostMouseButton: pos=({globalX},{globalY}) msg=0x{msg:X4} target=0x{(nint)target.Value:X}"); }
 
             // Convert global screen coords → client coords of the target window.
             PInvoke.ScreenToClient(target, ref pt);
-
-            // MAKELPARAM: low word = X, high word = Y (matches Win32 macro exactly).
             nint lParamVal = (nint)(uint)((ushort)pt.X | ((uint)(ushort)pt.Y << 16));
 
             PInvoke.PostMessage(target, msg, new WPARAM(wParam), new LPARAM(lParamVal));
+            AppLogger.Log($"  PostMouseButton: posted client=({pt.X},{pt.Y})");
         }
 
         private void OnContentPointerWheelChanged(object sender, PointerRoutedEventArgs e)
@@ -1337,10 +1362,10 @@ namespace UIXtend.Core.UI
             e.Handled = true;
         }
 
-        private static void PostMouseWheel(int globalX, int globalY, uint msg, nuint wParam)
+        private void PostMouseWheel(int globalX, int globalY, uint msg, nuint wParam)
         {
             var pt     = new System.Drawing.Point(globalX, globalY);
-            var target = PInvoke.WindowFromPoint(pt);
+            var target = FindTargetWindowAt(pt);
             if (target == default) return;
 
             // WM_MOUSEWHEEL / WM_MOUSEHWHEEL lParam carries *screen* coordinates
@@ -1406,7 +1431,7 @@ namespace UIXtend.Core.UI
                 clickThrough ? exStyle | WS_EX_TRANSPARENT : exStyle & ~WS_EX_TRANSPARENT);
 
             // Content surface must remain hit-testable to receive XAML pointer events
-            // for re-dispatch.  (ShowOverlay=true resets this to false.)
+            // for re-dispatch (click-through) or input forwarding.
             if (_contentSurface != null)
                 _contentSurface.IsHitTestVisible = clickThrough || _inputForwardingEnabled;
 
