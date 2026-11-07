@@ -1,6 +1,6 @@
 # UIXtend
 
-A high-performance Windows screen-magnification overlay designed for gamers and users with visual or motor impairments. Capture any region of your screen into a floating, resizable lens window that updates in real time at up to 144 FPS with near-zero CPU impact.
+A Windows screen-magnification overlay designed for gamers and users with visual or motor impairments. Capture any region of your screen into a floating, resizable lens window that updates in real time, and forward clicks through the lens to the real thing underneath. In logged sessions, drawing and presenting all lenses averaged 0.19 to 0.48 ms per frame.
 
 ## Install
 - **Download** the new 0.2 release here: https://github.com/gstroudharris/UIXtend/releases/tag/UIXtend_0.2!
@@ -81,4 +81,4 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 Icons from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) © Microsoft Corporation, MIT License.
 
-Vibe coding assistance from [Claude Sonnet 4.6](https://claude.ai) by Anthropic.
+I wrote the specifications and architecture rules and made the testing and release decisions, and [Claude Sonnet 4.6](https://claude.ai) by Anthropic handled most of the implementation.
